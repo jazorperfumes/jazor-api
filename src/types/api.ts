@@ -1,0 +1,63 @@
+/**
+ * Wire types shared between API and UI.
+ * Mirrored in ui/src/lib/api-types.ts — keep in sync.
+ */
+
+export type ApiErrorCode =
+  | "VALIDATION_ERROR"
+  | "UNAUTHENTICATED"
+  | "FORBIDDEN"
+  | "INVALID_CREDENTIALS"
+  | "ACCOUNT_NOT_FOUND"
+  | "EMAIL_EXISTS"
+  | "USER_NOT_FOUND"
+  | "TOKEN_INVALID"
+  | "TOKEN_EXPIRED"
+  | "EMAIL_ALREADY_VERIFIED"
+  | "EMAIL_NOT_VERIFIED"
+  | "OTP_INVALID"
+  | "OTP_EXPIRED"
+  | "OTP_TOO_MANY_ATTEMPTS"
+  | "RATE_LIMITED"
+  | "CSRF_INVALID"
+  | "NOT_FOUND"
+  | "CART_EMPTY"
+  | "OUT_OF_STOCK"
+  | "ADDRESS_INVALID"
+  | "ADDRESS_LIMIT"
+  | "SIGNATURE_INVALID"
+  | "PAYMENT_FAILED"
+  | "ORDER_NOT_CANCELABLE"
+  | "REVIEW_EXISTS"
+  | "REVIEW_NOT_ELIGIBLE"
+  | "FILE_TOO_LARGE"
+  | "FILE_INVALID"
+  | "SLUG_TAKEN"
+  | "SKU_TAKEN"
+  | "PROMOTION_INVALID"
+  | "PROMOTION_CODE_TAKEN"
+  | "PROMOTION_GIFT_INVALID"
+  | "INVALID_STATUS_TRANSITION"
+  | "SHIPMENT_EXISTS"
+  | "SHIPMENT_PROVIDER_ERROR"
+  | "SHIPMENT_PROVIDER_DISABLED"
+  | "PICKUP_ADDRESS_REQUIRED"
+  | "SHIPMENT_NOT_CANCELABLE"
+  | "PICKUP_ADDRESS_IN_USE"
+  | "REFUND_CLAIM_NOT_ELIGIBLE"
+  | "REFUND_CLAIM_EXPIRED"
+  | "REFUND_CLAIM_EXISTS"
+  | "REFUND_CLAIM_NOT_FOUND"
+  | "REFUND_CLAIM_NOT_ACTIONABLE"
+  | "IMAGE_REQUIRED"
+  | "INTERNAL_ERROR";
+
+export interface ApiErrorBody {
+  code: ApiErrorCode;
+  message: string;
+  details?: unknown;
+}
+
+export type ApiResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: ApiErrorBody };

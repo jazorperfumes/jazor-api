@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jazor
+      POSTGRES_PASSWORD: jazor
+      POSTGRES_DB: jazor
+    ports:
+      - "5432:5432"
+    volumes:
+      - jazor-pgdata:/var/lib/postgresql/data
+
+volumes:
+  jazor-pgdata:
