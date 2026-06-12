@@ -25,6 +25,16 @@ vi.mock("../src/services/invoiceService.js", () => ({
   generateInvoice: vi.fn(async () => Buffer.from("PDF")),
 }));
 
+// Cloudinary — stub object-storage uploads/deletes so image-bearing routes
+// (refund claims, product images) never issue real network calls in tests.
+vi.mock("../src/lib/cloudinary.js", () => ({
+  uploadBuffer: vi.fn(async (_buffer: Buffer, folder: string) => ({
+    url: `https://res.cloudinary.com/test/${folder}/mock.png`,
+    publicId: `${folder}/mock`,
+  })),
+  destroy: vi.fn(async () => undefined),
+}));
+
 // Razorpay REST stubs — verifyPaymentSignature/verifyWebhookSignature remain real
 // so signature tests exercise actual crypto. Only outbound network calls are stubbed.
 vi.mock("../src/services/razorpayService.js", async (importOriginal) => {
