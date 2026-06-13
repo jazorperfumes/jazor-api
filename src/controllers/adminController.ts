@@ -219,10 +219,16 @@ export async function imagesUpload(req: Request, res: Response) {
   if (!file) {
     throw new HttpError(400, "FILE_INVALID", "No file uploaded");
   }
+  const variantId =
+    typeof req.body?.variantId === "string" ? req.body.variantId.trim() : "";
+  if (!variantId) {
+    throw new HttpError(400, "VALIDATION_ERROR", "variantId is required");
+  }
   const altEn = typeof req.body?.altEn === "string" ? req.body.altEn : undefined;
   const altAr = typeof req.body?.altAr === "string" ? req.body.altAr : undefined;
   const dto = await imgSvc.uploadOne({
     productId,
+    variantId,
     buffer: file.buffer,
     altEn,
     altAr,
@@ -233,6 +239,7 @@ export async function imagesUpload(req: Request, res: Response) {
 const imageUpdateSchema = z.object({
   position: z.number().int().min(0).optional(),
   alt: z.union([I18N, z.null()]).optional(),
+  variantId: z.string().min(1).optional(),
 });
 
 export async function imageUpdate(req: Request, res: Response) {

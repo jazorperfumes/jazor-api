@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../middleware/error.js";
 import type { CartDto, CartItemDto } from "../types/cart.js";
 import type { I18nString } from "../types/products.js";
+import { firstImageOf } from "./productImage.js";
 
 type PrismaCartWithItems = Prisma.CartGetPayload<{
   include: {
@@ -10,7 +11,8 @@ type PrismaCartWithItems = Prisma.CartGetPayload<{
       include: {
         variant: {
           include: {
-            product: { include: { images: true } };
+            images: true;
+            product: true;
           };
         };
       };
@@ -24,7 +26,8 @@ const cartInclude = {
     include: {
       variant: {
         include: {
-          product: { include: { images: true } },
+          images: true,
+          product: true,
         },
       },
     },
@@ -45,7 +48,7 @@ function jsonToI18n(value: Prisma.JsonValue | null | undefined): I18nString {
 function toCartItemDto(item: PrismaCartWithItems["items"][number]): CartItemDto {
   const variant = item.variant;
   const product = variant.product;
-  const primary = product.images.slice().sort((a, b) => a.position - b.position)[0];
+  const primary = firstImageOf(variant.images);
   const inStock =
     variant.isActive &&
     variant.deletedAt == null &&

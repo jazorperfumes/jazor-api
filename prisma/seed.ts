@@ -69,6 +69,8 @@ interface Row {
   price_100: string;
   stock_100: string;
   images: string;
+  images_50?: string;
+  images_100?: string;
 }
 
 const splitList = (s: string): string[] =>
@@ -152,8 +154,16 @@ async function seedProducts() {
       });
     }
 
+    const sharedImages = splitList(r.images);
+    const imagesFor = (sizeMl: number): string[] => {
+      const sized = splitList(
+        sizeMl === 50 ? (r.images_50 ?? "") : (r.images_100 ?? ""),
+      );
+      return sized.length > 0 ? sized : sharedImages;
+    };
+
     for (const v of variantSpecs) {
-      await prisma.productVariant.upsert({
+      const variant = await prisma.productVariant.upsert({
         where: { sku: v.sku },
         create: { ...v, productId: product.id, isActive: true },
         update: {
@@ -166,19 +176,20 @@ async function seedProducts() {
         },
       });
       variantsUpserted++;
-    }
 
-    const urls = splitList(r.images);
-    if (urls.length > 0) {
-      await prisma.productImage.deleteMany({ where: { productId: product.id } });
-      await prisma.productImage.createMany({
-        data: urls.map((url, i) => ({
-          productId: product.id,
-          url,
-          position: i,
-        })),
-      });
-      imagesReplaced += urls.length;
+      // Images are per-variant; replace this variant's set on each seed run.
+      const urls = imagesFor(v.sizeMl);
+      await prisma.productImage.deleteMany({ where: { variantId: variant.id } });
+      if (urls.length > 0) {
+        await prisma.productImage.createMany({
+          data: urls.map((url, i) => ({
+            variantId: variant.id,
+            url,
+            position: i,
+          })),
+        });
+        imagesReplaced += urls.length;
+      }
     }
   }
 
@@ -522,7 +533,10 @@ const ORDER_SPECS: OrderSpec[] = [
 
 async function seedOrders(userIds: Record<string, string>, promos: Record<string, PromoRef>, pickupAddressId: string) {
   const variants = await prisma.productVariant.findMany({
-    include: { product: { include: { images: { orderBy: { position: "asc" }, take: 1 } } } },
+    include: {
+      images: { orderBy: { position: "asc" }, take: 1 },
+      product: true,
+    },
   });
   const bySku = (s: string) => variants.find((v) => v.sku === s);
 
@@ -546,7 +560,7 @@ async function seedOrders(userIds: Record<string, string>, promos: Record<string
         productSnapshot: {
           name,
           slug: v.product.slug,
-          image: v.product.images[0]?.url ?? null,
+          image: v.images[0]?.url ?? null,
           sizeMl: v.sizeMl,
           sku: v.sku,
           collection: v.product.collection,

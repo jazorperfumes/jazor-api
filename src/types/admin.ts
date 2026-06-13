@@ -269,6 +269,8 @@ export interface AdminInventoryAdjustResponse {
 export interface AdminImageUpdateRequest {
   position?: number;
   alt?: I18nString | null;
+  /** reassign image to another variant of the same product */
+  variantId?: string;
 }
 
 export interface AdminImageDto extends ProductImageSummaryDto {

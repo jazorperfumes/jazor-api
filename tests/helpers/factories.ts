@@ -63,10 +63,10 @@ export async function makeProduct(opts: MakeProductOpts = {}) {
           sizeMl: 50,
           price: opts.price ?? 100000,
           stock: opts.stock ?? 10,
+          images: {
+            create: { url: "/uploads/test.png", position: 0 },
+          },
         },
-      },
-      images: {
-        create: { url: "/uploads/test.png", position: 0 },
       },
     },
     include: { variants: true },

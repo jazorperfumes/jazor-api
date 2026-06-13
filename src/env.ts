@@ -46,7 +46,7 @@ const schema = z.object({
   ADMIN_ALERT_EMAIL: z.string().email(),
   ORDER_CREATED_TTL_MIN: z.coerce.number().int().positive().default(30),
   STOCK_REAPER_INTERVAL_MIN: z.coerce.number().int().positive().default(5),
-  REFUND_CLAIM_WINDOW_DAYS: z.coerce.number().int().positive().default(7),
+  REFUND_CLAIM_WINDOW_DAYS: z.coerce.number().int().positive().default(14),
 
   // Invoice footer.
   BIZ_LEGAL_NAME: z.string().default("Jazor Perfumes"),

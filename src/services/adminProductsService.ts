@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { customAlphabet } from "nanoid";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../middleware/error.js";
+import { pickPrimaryImage } from "./productImage.js";
 import type {
   AdminProductDetailDto,
   AdminProductListItemDto,
@@ -79,15 +80,19 @@ async function ensureUniqueSlug(desired: string, excludeId?: string): Promise<st
 // ─── DTO mappers ───────────────────────────────────────────────────────────
 
 type PrismaListProduct = Prisma.ProductGetPayload<{
-  include: { variants: true; images: true };
+  include: { variants: { include: { images: true } } };
 }>;
+
+const productInclude = {
+  variants: { include: { images: true } },
+} satisfies Prisma.ProductInclude;
 
 function toListItemDto(p: PrismaListProduct): AdminProductListItemDto {
   const variants = p.variants.filter((v) => !v.deletedAt);
   const prices = variants.filter((v) => v.isActive).map((v) => v.price);
   const minPrice = prices.length ? Math.min(...prices) : null;
   const totalStock = variants.reduce((s, v) => s + v.stock, 0);
-  const primary = p.images.slice().sort((a, b) => a.position - b.position)[0];
+  const primary = pickPrimaryImage(p.variants);
   return {
     id: p.id,
     slug: p.slug,
@@ -102,7 +107,12 @@ function toListItemDto(p: PrismaListProduct): AdminProductListItemDto {
     totalStock,
     minPrice,
     primaryImage: primary
-      ? { id: primary.id, url: primary.url, alt: jsonToI18nNullable(primary.alt) }
+      ? {
+          id: primary.id,
+          variantId: primary.variantId,
+          url: primary.url,
+          alt: jsonToI18nNullable(primary.alt),
+        }
       : null,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
@@ -130,18 +140,22 @@ function toVariantDto(v: {
 }
 
 function toDetailDto(p: PrismaListProduct): AdminProductDetailDto {
-  const variants = p.variants
+  const sortedVariants = p.variants
     .slice()
-    .sort((a, b) => a.sizeMl - b.sizeMl)
-    .map(toVariantDto);
-  const images: ProductImageSummaryDto[] = p.images
-    .slice()
-    .sort((a, b) => a.position - b.position)
-    .map((img) => ({
-      id: img.id,
-      url: img.url,
-      alt: jsonToI18nNullable(img.alt),
-    }));
+    .sort((a, b) => a.sizeMl - b.sizeMl);
+  const variants = sortedVariants.map(toVariantDto);
+  // Per-variant images, flattened in variant order then position.
+  const images: ProductImageSummaryDto[] = sortedVariants.flatMap((v) =>
+    v.images
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((img) => ({
+        id: img.id,
+        variantId: v.id,
+        url: img.url,
+        alt: jsonToI18nNullable(img.alt),
+      })),
+  );
   return {
     id: p.id,
     slug: p.slug,
@@ -205,7 +219,7 @@ export async function list(query: AdminProductListQuery): Promise<AdminProductLi
       orderBy: [{ createdAt: "desc" }],
       skip,
       take: pageSize,
-      include: { variants: true, images: true },
+      include: productInclude,
     }),
     prisma.product.count({ where }),
   ]);
@@ -223,7 +237,7 @@ export async function list(query: AdminProductListQuery): Promise<AdminProductLi
 export async function detail(id: string): Promise<AdminProductDetailDto> {
   const p = await prisma.product.findUnique({
     where: { id },
-    include: { variants: true, images: true },
+    include: productInclude,
   });
   if (!p) throw new HttpError(404, "NOT_FOUND", "Product not found");
   return toDetailDto(p);
@@ -253,7 +267,7 @@ export async function create(input: AdminProductUpsertRequest): Promise<AdminPro
       isActive: input.isActive ?? true,
       isFeatured: input.isFeatured ?? false,
     },
-    include: { variants: true, images: true },
+    include: productInclude,
   });
   return toDetailDto(product);
 }
@@ -289,7 +303,7 @@ export async function patch(id: string, input: AdminProductPatchRequest): Promis
   const product = await prisma.product.update({
     where: { id },
     data,
-    include: { variants: true, images: true },
+    include: productInclude,
   });
   return toDetailDto(product);
 }
@@ -312,7 +326,7 @@ export async function restore(id: string): Promise<AdminProductDetailDto> {
   const product = await prisma.product.update({
     where: { id },
     data: { deletedAt: null },
-    include: { variants: true, images: true },
+    include: productInclude,
   });
   return toDetailDto(product);
 }
