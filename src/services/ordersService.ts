@@ -7,7 +7,12 @@ import { env } from "../env.js";
 import * as checkoutService from "./checkoutService.js";
 import * as razorpayService from "./razorpayService.js";
 import { generateInvoice } from "./invoiceService.js";
-import { sendMail, orderConfirmationEmail, adminOrderAlertEmail } from "./mailService.js";
+import {
+  sendMail,
+  orderConfirmationEmail,
+  adminOrderAlertEmail,
+  adminPaidAfterCancelEmail,
+} from "./mailService.js";
 import { normalizeCountry } from "../utils/country.js";
 import * as addressService from "./addressService.js";
 import type {
@@ -319,6 +324,7 @@ export async function create(
       availableStock: i.availableStock,
       unitPrice: i.unitPrice,
       lineTotal: i.lineTotal,
+      isGift: false,
       snapshot: {
         name: i.name,
         slug: i.slug,
@@ -335,6 +341,7 @@ export async function create(
       availableStock: g.availableStock,
       unitPrice: g.unitPrice,
       lineTotal: g.unitPrice,
+      isGift: true,
       snapshot: {
         name: g.name,
         slug: g.slug,
@@ -397,6 +404,7 @@ export async function create(
         unitPrice: i.unitPrice,
         qty: i.qty,
         lineTotalPrice: i.lineTotal,
+        isGift: i.isGift,
       })),
     });
 
@@ -545,8 +553,19 @@ export async function verifyAndCapture(
   }
 
   // Idempotent — if order is already PAID (e.g. webhook beat us), no-op.
-  if (order.status !== "PAID") {
-    await prisma.$transaction(async (tx) => {
+  if (order.status === "PAID") {
+    return { orderId: order.id, orderNumber: order.orderNumber };
+  }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    // Atomic flip: only a still-CREATED order becomes PAID. Guards the race
+    // where the reaper cancelled (and restored stock) between our read and this
+    // write — flipping a CANCELLED order to PAID would silently oversell.
+    const flipped = await tx.order.updateMany({
+      where: { id: order.id, status: "CREATED" },
+      data: { status: "PAID", paidAt: new Date() },
+    });
+    if (flipped.count === 1) {
       await tx.payment.update({
         where: { id: payment.id },
         data: {
@@ -555,10 +574,6 @@ export async function verifyAndCapture(
           status: "CAPTURED",
           capturedAt: new Date(),
         },
-      });
-      await tx.order.update({
-        where: { id: order.id },
-        data: { status: "PAID", paidAt: new Date() },
       });
       await commitRedemptions(tx, order.id);
       // Clear the user's cart now that payment is captured.
@@ -569,14 +584,54 @@ export async function verifyAndCapture(
       await tx.orderStatusEvent.create({
         data: { orderId: order.id, status: "PAID", note: "payment_captured" },
       });
-    });
+      return "PAID" as const;
+    }
 
-    // Fire-and-forget side effects: emails. Failure here must NOT fail verify.
+    // Not CREATED. Either the webhook already marked it PAID, or the reaper
+    // cancelled it. Re-read to decide.
+    const current = await tx.order.findUnique({
+      where: { id: order.id },
+      select: { status: true },
+    });
+    if (current?.status === "PAID") return "ALREADY_PAID" as const;
+
+    // Payment captured on a cancelled/dead order. Record the capture + flag for
+    // manual reconciliation; do NOT mark PAID (stock was already restored).
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        providerPaymentId: input.razorpayPaymentId,
+        providerSignature: input.razorpaySignature,
+        status: "CAPTURED",
+        capturedAt: new Date(),
+      },
+    });
+    await tx.orderStatusEvent.create({
+      data: {
+        orderId: order.id,
+        status: current?.status ?? "CANCELLED",
+        note: "paid_after_cancel",
+      },
+    });
+    return "PAID_AFTER_CANCEL" as const;
+  });
+
+  // Fire-and-forget side effects: emails. Failure here must NOT fail verify.
+  if (outcome === "PAID") {
     void sendOrderConfirmation(order.id).catch((e) =>
       logger.error("order confirmation mail failed", e, { orderId: order.id }),
     );
     void sendAdminAlert(order.id).catch((e) =>
       logger.error("admin alert mail failed", e, { orderId: order.id }),
+    );
+  } else if (outcome === "PAID_AFTER_CANCEL") {
+    logger.error(
+      "payment captured on non-CREATED order",
+      new Error("paid_after_cancel"),
+      { orderId: order.id },
+    );
+    void sendPaidAfterCancelAlert(order.id).catch((e) =>
+      logger.error("paid-after-cancel alert mail failed", e, { orderId: order.id }),
     );
   }
 
@@ -608,6 +663,14 @@ async function sendAdminAlert(orderId: string): Promise<void> {
   await sendMail({ to: env.ADMIN_ALERT_EMAIL, ...tmpl });
 }
 
+/** Money captured on an order that was already cancelled (reaper race). Needs a human. */
+async function sendPaidAfterCancelAlert(orderId: string): Promise<void> {
+  const order = await loadOrderDetail(orderId);
+  if (!order) return;
+  const tmpl = adminPaidAfterCancelEmail(order);
+  await sendMail({ to: env.ADMIN_ALERT_EMAIL, ...tmpl });
+}
+
 // ─── webhook handlers ────────────────────────────────────────────────────
 
 interface WebhookPaymentEntity {
@@ -636,11 +699,10 @@ export async function handlePaymentCaptured(payment: WebhookPaymentEntity): Prom
     },
   });
   if (!p) return;
-  if (p.status === "CAPTURED" && p.order.status === "PAID") return;
-
-  await prisma.$transaction(async (tx) => {
+  if (p.order.status === "PAID") {
+    // Order already settled (verify beat us); just ensure the payment row reflects capture.
     if (p.status !== "CAPTURED") {
-      await tx.payment.update({
+      await prisma.payment.update({
         where: { id: p.id },
         data: {
           providerPaymentId: payment.id ?? null,
@@ -650,10 +712,24 @@ export async function handlePaymentCaptured(payment: WebhookPaymentEntity): Prom
         },
       });
     }
-    if (p.order.status !== "PAID") {
-      await tx.order.update({
-        where: { id: p.orderId },
-        data: { status: "PAID", paidAt: new Date() },
+    return;
+  }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    // Atomic flip — only a still-CREATED order becomes PAID (see verifyAndCapture).
+    const flipped = await tx.order.updateMany({
+      where: { id: p.orderId, status: "CREATED" },
+      data: { status: "PAID", paidAt: new Date() },
+    });
+    if (flipped.count === 1) {
+      await tx.payment.update({
+        where: { id: p.id },
+        data: {
+          providerPaymentId: payment.id ?? null,
+          status: "CAPTURED",
+          method: payment.method ?? null,
+          capturedAt: new Date(),
+        },
       });
       await commitRedemptions(tx, p.orderId);
       if (p.order.userId) {
@@ -665,15 +741,53 @@ export async function handlePaymentCaptured(payment: WebhookPaymentEntity): Prom
       await tx.orderStatusEvent.create({
         data: { orderId: p.orderId, status: "PAID", note: "webhook_payment_captured" },
       });
+      return "PAID" as const;
     }
+
+    const current = await tx.order.findUnique({
+      where: { id: p.orderId },
+      select: { status: true },
+    });
+    if (current?.status === "PAID") return "ALREADY_PAID" as const;
+
+    // Captured on a cancelled/dead order — record capture, flag for manual
+    // reconciliation, do NOT mark PAID (stock already restored by reaper).
+    await tx.payment.update({
+      where: { id: p.id },
+      data: {
+        providerPaymentId: payment.id ?? null,
+        status: "CAPTURED",
+        method: payment.method ?? null,
+        capturedAt: new Date(),
+      },
+    });
+    await tx.orderStatusEvent.create({
+      data: {
+        orderId: p.orderId,
+        status: current?.status ?? "CANCELLED",
+        note: "paid_after_cancel",
+      },
+    });
+    return "PAID_AFTER_CANCEL" as const;
   });
 
-  void sendOrderConfirmation(p.orderId).catch((e) =>
-    logger.error("order confirmation mail failed", e, { orderId: p.orderId }),
-  );
-  void sendAdminAlert(p.orderId).catch((e) =>
-    logger.error("admin alert mail failed", e, { orderId: p.orderId }),
-  );
+  if (outcome === "PAID") {
+    void sendOrderConfirmation(p.orderId).catch((e) =>
+      logger.error("order confirmation mail failed", e, { orderId: p.orderId }),
+    );
+    void sendAdminAlert(p.orderId).catch((e) =>
+      logger.error("admin alert mail failed", e, { orderId: p.orderId }),
+    );
+  } else if (outcome === "PAID_AFTER_CANCEL") {
+    logger.error(
+      "payment captured on non-CREATED order (webhook)",
+      new Error("paid_after_cancel"),
+      { orderId: p.orderId },
+    );
+    void sendPaidAfterCancelAlert(p.orderId).catch((e) =>
+      logger.error("paid-after-cancel alert mail failed", e, { orderId: p.orderId }),
+    );
+  }
 }
 
 export async function handlePaymentFailed(payment: WebhookPaymentEntity): Promise<void> {
@@ -707,9 +821,11 @@ export async function handleRefundProcessed(refund: WebhookRefundEntity): Promis
       where: { id: r.id },
       data: { status: "PROCESSED", processedAt: new Date() },
     });
-    if (r.kind === "DAMAGE_CLAIM") {
-      await maybeFlipOrderToTerminalState(tx, r.orderId, null);
-    }
+    // Reconcile for BOTH kinds: a PRE_SHIP_CANCEL refund (= full totalPrice)
+    // flips the order to REFUNDED + payment REFUNDED once settled; a DAMAGE_CLAIM
+    // partial leaves the order in the right state. Previously pre-ship cancels
+    // settling async via webhook left payment stuck CAPTURED.
+    await maybeFlipOrderToTerminalState(tx, r.orderId, null);
   });
 }
 

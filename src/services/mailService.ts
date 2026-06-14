@@ -272,6 +272,22 @@ export function adminOrderAlertEmail(order: OrderDetailDto) {
   };
 }
 
+/**
+ * Captured payment landed on an order that was no longer CREATED (e.g. the
+ * stock-reaper cancelled it first). Money is in, stock was already restored —
+ * a human must re-stock + ship or issue a refund.
+ */
+export function adminPaidAfterCancelEmail(order: OrderDetailDto) {
+  return {
+    subject: `⚠ Payment on cancelled order — ${order.orderNumber} · ${formatPaiseInr(order.totalPrice)}`,
+    text: `Payment was captured for order ${order.orderNumber} (${formatPaiseInr(order.totalPrice)}, ${order.email}) but the order was already in status ${order.status} (likely auto-cancelled before payment landed). Stock was restored. Reconcile manually: re-stock + ship, or refund the customer.`,
+    html: `<p><strong>⚠ Payment captured on a non-active order</strong></p>
+<p>Order: ${escapeHtml(order.orderNumber)}<br/>Current status: <strong>${escapeHtml(order.status)}</strong><br/>Customer: ${escapeHtml(order.email)}, ${escapeHtml(order.phone)}<br/>Amount captured: ${formatPaiseInr(order.totalPrice)}</p>
+<p>The order was no longer CREATED when payment landed (most likely auto-cancelled by the stock-reaper after the payment window). Stock has already been restored, so the order was NOT auto-marked PAID.</p>
+<p><strong>Action needed:</strong> verify stock and either re-stock + ship this order, or refund the customer.</p>`,
+  };
+}
+
 // ─── refund claim templates ───────────────────────────────────────────────
 
 function claimItemLabel(claim: RefundClaimDto): string {

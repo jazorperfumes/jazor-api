@@ -144,6 +144,29 @@ export async function submit(userId: string, input: SubmitInput): Promise<Refund
 
   const item = order.items[0];
 
+  // Free BxGy gift lines were never paid for — not refundable.
+  if (item.isGift) {
+    throw new HttpError(400, "REFUND_CLAIM_NOT_ELIGIBLE", "Free gift items are not refundable");
+  }
+
+  // Refund the amount the customer actually paid for THIS item: its line total
+  // minus its proportional share of the order's monetary discount. Shipping and
+  // gift-wrap are order-level charges (service already rendered) and are not
+  // refunded for a single-item damage claim. Gift lines are excluded from both
+  // the discount pool and the paid-subtotal denominator.
+  const giftAgg = await prisma.orderItem.aggregate({
+    where: { orderId: order.id, isGift: true },
+    _sum: { lineTotalPrice: true },
+  });
+  const giftValue = giftAgg._sum.lineTotalPrice ?? 0;
+  const paidSubtotal = order.subtotalPrice - giftValue;
+  const monetaryDiscount = order.discountPrice - giftValue;
+  const discountShare =
+    paidSubtotal > 0 && monetaryDiscount > 0
+      ? Math.round((monetaryDiscount * item.lineTotalPrice) / paidSubtotal)
+      : 0;
+  const refundAmount = Math.max(0, item.lineTotalPrice - discountShare);
+
   const refundId = await prisma.$transaction(async (tx) => {
     // Defensive: re-check uniqueness inside tx (closes race between two parallel submits).
     const dup = await tx.refund.findFirst({
@@ -162,7 +185,7 @@ export async function submit(userId: string, input: SubmitInput): Promise<Refund
         kind: "DAMAGE_CLAIM",
         reasonCode: input.reasonCode,
         userDescription: input.userDescription.trim(),
-        amountPrice: item.lineTotalPrice,
+        amountPrice: refundAmount,
         status: "REQUESTED",
         createdByUserId: userId,
       },
@@ -247,7 +270,7 @@ export async function eligibleItemIds(userId: string, orderId: string): Promise<
   const order = await prisma.order.findFirst({
     where: { id: orderId, userId },
     include: {
-      items: { select: { id: true } },
+      items: { select: { id: true, isGift: true } },
       shipments: { orderBy: { createdAt: "desc" }, take: 1 },
       refunds: {
         where: { kind: "DAMAGE_CLAIM" },
@@ -261,5 +284,6 @@ export async function eligibleItemIds(userId: string, orderId: string): Promise<
   if (!delivered) return [];
   if (new Date() > eligibilityCutoff(delivered)) return [];
   const claimed = new Set(order.refunds.map((r) => r.orderItemId).filter(Boolean) as string[]);
-  return order.items.filter((i) => !claimed.has(i.id)).map((i) => i.id);
+  // Free gift lines aren't refundable — never offer them as claimable.
+  return order.items.filter((i) => !i.isGift && !claimed.has(i.id)).map((i) => i.id);
 }

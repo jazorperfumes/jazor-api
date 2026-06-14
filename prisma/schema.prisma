@@ -420,6 +420,7 @@ model OrderItem {
   unitPrice       Int
   qty             Int
   lineTotalPrice  Int
+  isGift          Boolean  @default(false) // free BxGy gift line — user paid nothing; excluded from refunds + discount allocation
   createdAt       DateTime @default(now())
 
   order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
