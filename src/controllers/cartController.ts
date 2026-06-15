@@ -3,9 +3,8 @@ import { z } from "zod";
 import * as cartService from "../services/cartService.js";
 import { ok } from "../utils/respond.js";
 import { HttpError } from "../middleware/error.js";
+import { MAX_CART_QTY } from "../constants/site.js";
 import type { CartDto } from "../types/cart.js";
-
-const MAX_CART_QTY = 10;
 
 const addSchema = z.object({
   variantId: z.string().min(1),
