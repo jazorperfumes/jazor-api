@@ -84,6 +84,7 @@ export interface OrderItemDto {
   unitPrice: number;
   qty: number;
   lineTotalPrice: number;
+  isGift: boolean;
   hasReview: boolean;
 }
 

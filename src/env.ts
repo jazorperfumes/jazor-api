@@ -31,7 +31,7 @@ const schema = z.object({
 
   // Commerce constants (paise where applicable).
   FLAT_SHIPPING_PAISE: z.coerce.number().int().nonnegative().default(9900),
-  GIFT_WRAP_PAISE: z.coerce.number().int().nonnegative().default(10000),
+  GIFT_WRAP_PAISE: z.coerce.number().int().nonnegative().default(4900),
 
   // Public contact channels surfaced via /api/settings/public.
   WHATSAPP_NUMBER: z.string().default("+917992020111"),

@@ -145,7 +145,7 @@ function renderOrderItemsHtml(order: OrderDetailDto): string {
   const rows = order.items
     .map(
       (i) =>
-        `<tr><td style="${cell};color:${BRAND.ink}">${escapeHtml(i.name.en)} <span style="color:${BRAND.muted}">· ${i.sizeMl}ml</span></td><td style="${cell};text-align:right;color:${BRAND.muted}">×${i.qty}</td><td style="${cell};text-align:right;color:${BRAND.ink}">${formatPaiseInr(i.lineTotalPrice)}</td></tr>`,
+        `<tr><td style="${cell};color:${BRAND.ink}">${escapeHtml(i.name.en)}${i.isGift ? " <span style=\"color:" + BRAND.muted + "\">(gift)</span>" : ""} <span style="color:${BRAND.muted}">· ${i.sizeMl}ml</span></td><td style="${cell};text-align:right;color:${BRAND.muted}">×${i.qty}</td><td style="${cell};text-align:right;color:${BRAND.ink}">${i.isGift ? "Free" : formatPaiseInr(i.lineTotalPrice)}</td></tr>`,
     )
     .join("");
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:8px 0"><tbody>${rows}</tbody></table>`;
@@ -162,7 +162,12 @@ function renderOrderTotalsHtml(order: OrderDetailDto): string {
   };
   const rows: string[] = [row("Subtotal", formatPaiseInr(order.subtotalPrice))];
   if (order.discountPrice > 0) {
-    const codes = order.promotions.map((p) => p.code).filter(Boolean);
+    // Only monetary promos contribute to discountPrice — a BxGy gift code must
+    // not appear next to this amount (its gift shows as a free line item).
+    const codes = order.promotions
+      .filter((p) => p.rewardType === "PERCENT" || p.rewardType === "FLAT")
+      .map((p) => p.code)
+      .filter(Boolean);
     const label = codes.length > 0 ? `Discount (${escapeHtml(codes.join(", "))})` : "Discount";
     rows.push(row(label, `−${formatPaiseInr(order.discountPrice)}`));
   }

@@ -180,6 +180,7 @@ function toOrderItemDto(item: OrderWithRelations["items"][number]): OrderItemDto
     unitPrice: item.unitPrice,
     qty: item.qty,
     lineTotalPrice: item.lineTotalPrice,
+    isGift: item.isGift,
     hasReview: Boolean(item.review),
   };
 }
@@ -339,8 +340,8 @@ export async function create(
       variantId: g.variantId,
       qty: 1,
       availableStock: g.availableStock,
-      unitPrice: g.unitPrice,
-      lineTotal: g.unitPrice,
+      unitPrice: 0,
+      lineTotal: 0,
       isGift: true,
       snapshot: {
         name: g.name,

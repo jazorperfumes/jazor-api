@@ -67,6 +67,9 @@ export async function quoteDetailed(
     giftSelections: input.giftSelections ?? [],
   });
 
+  // Gift lines are shown as free (₹0) line items — not folded into subtotal then
+  // discounted back out. Their retail value lives on the BxGy promotion record
+  // (engine.giftValue / PromotionRedemption.amountPrice), not on the money math.
   for (const g of engine.giftLines) {
     items.push({
       variantId: g.variantId,
@@ -74,17 +77,17 @@ export async function quoteDetailed(
       slug: g.slug,
       image: g.image,
       sizeMl: g.sizeMl,
-      unitPrice: g.unitPrice,
+      unitPrice: 0,
       qty: 1,
-      lineTotal: g.unitPrice,
+      lineTotal: 0,
       inStock: g.inStock,
       availableStock: g.availableStock,
       isGift: true,
     });
   }
 
-  const subtotalPrice = cartSubtotal + engine.giftValue;
-  const discountPrice = engine.monetaryDiscount + engine.giftValue;
+  const subtotalPrice = cartSubtotal;
+  const discountPrice = engine.monetaryDiscount;
   const giftWrapPrice = input.giftWrap ? env.GIFT_WRAP_PAISE : 0;
   const totalPrice = subtotalPrice - discountPrice + engine.shippingPrice + giftWrapPrice;
 
