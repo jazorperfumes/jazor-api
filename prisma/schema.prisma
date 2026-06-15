@@ -483,7 +483,8 @@ model Refund {
   userDescription  String?           // user-submitted free text (required for DAMAGE_CLAIM)
   reviewNote       String?           // admin's approve/reject note
   providerRefundId String?           @unique
-  amountPrice      Int               // lineTotalPrice for DAMAGE_CLAIM, order.totalPrice for PRE_SHIP_CANCEL
+  quantity         Int               @default(1) // units claimed (DAMAGE_CLAIM, ≥1 up to the line qty); 1 for PRE_SHIP_CANCEL
+  amountPrice      Int               // per-unit-share × quantity for DAMAGE_CLAIM, order.totalPrice for PRE_SHIP_CANCEL
   status           RefundStatus
   reason           String?           // legacy system tag — kept for "user_cancel" pre-ship rows
   rawPayload       Json?

@@ -59,6 +59,7 @@ function toDto(r: RefundWithRelations): RefundClaimDto {
     reasonCode: r.reasonCode,
     userDescription: r.userDescription,
     reviewNote: r.reviewNote,
+    quantity: r.quantity,
     amountPrice: r.amountPrice,
     status: r.status,
     reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,

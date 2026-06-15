@@ -6,12 +6,14 @@ import { ok } from "../utils/respond.js";
 import { HttpError } from "../middleware/error.js";
 import type {
   RefundClaimDto,
+  RefundClaimEligibleResponse,
   RefundClaimListResponse,
 } from "../types/refundClaims.js";
 
 const submitSchema = z.object({
   orderId: z.string().min(1),
   orderItemId: z.string().min(1),
+  quantity: z.coerce.number().int().min(1).default(1),
   reasonCode: z.enum(["DAMAGED_BOTTLE"]),
   userDescription: z.string().min(10).max(2000),
 });
@@ -30,6 +32,7 @@ export async function submit(req: Request, res: Response) {
   const body = submitSchema.parse({
     orderId: req.body?.orderId,
     orderItemId: req.body?.orderItemId,
+    quantity: req.body?.quantity,
     reasonCode: req.body?.reasonCode,
     userDescription: req.body?.userDescription,
   });
@@ -52,8 +55,8 @@ export async function listForOrder(req: Request, res: Response) {
 
 export async function eligibleItems(req: Request, res: Response) {
   const { id } = orderIdParam.parse(req.params);
-  const itemIds = await svc.eligibleItemIds(userId(req), id);
-  ok<{ itemIds: string[] }>(res, { itemIds });
+  const items = await svc.eligibleItems(userId(req), id);
+  ok<RefundClaimEligibleResponse>(res, { items });
 }
 
 // ─── admin endpoints ─────────────────────────────────────────────────────
