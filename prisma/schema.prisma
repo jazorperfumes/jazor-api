@@ -229,6 +229,12 @@ model ProductVariant {
   sizeMl     Int // 50, 100, etc
   price      Int // ₹1999.50 = 199950
   stock      Int       @default(0)
+  // Packaged shipping dimensions per SKU. Nullable: admin backfills over time;
+  // ship/rate-shop falls back to DEFAULT_PACKAGE when unset.
+  weightGrams Int?
+  lengthCm    Int?
+  breadthCm   Int?
+  heightCm    Int?
   isActive   Boolean   @default(true)
   deletedAt  DateTime?
   createdAt  DateTime  @default(now())
@@ -391,6 +397,10 @@ model Order {
   giftWrap        Boolean     @default(false)
   giftMessage     String?
   shippingAddress Json // snapshot at checkout
+  // Cheapest-courier ETA captured at placement (rate-shop estimatedDeliveryDays);
+  // estimatedDeliveryAt = placedAt + days, shown to customer. Null in manual mode.
+  estimatedDeliveryDays Int?
+  estimatedDeliveryAt   DateTime?
   notes           String?
   placedAt        DateTime    @default(now())
   paidAt          DateTime?

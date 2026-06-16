@@ -29,6 +29,18 @@ describe("checkout.quote math (integer paise only)", () => {
     expect(q.totalPrice).toBe(price + 9900);
   });
 
+  it("free shipping when subtotal clears the env threshold (no promo)", async () => {
+    // Default FREE_SHIPPING_THRESHOLD_PAISE = 259_900.
+    const big = await makeProduct({ price: 300_000, stock: 5 });
+    await addCartItem(userId, big.variants[0].id, 1);
+    const q = await checkoutService.quote(userId, {});
+    expect(q.subtotalPrice).toBe(300_000);
+    expect(q.shippingPrice).toBe(0);
+    // Threshold is a pricing rule, not a promotion — no FREE_SHIPPING line.
+    expect(q.appliedPromotions.some((p) => p.rewardType === "FREE_SHIPPING")).toBe(false);
+    expect(q.freeShippingThresholdPaise).toBe(259_900);
+  });
+
   it("FREE_SHIPPING promo waives shipping at/above its threshold", async () => {
     await makePromotion({
       rewardType: "FREE_SHIPPING",

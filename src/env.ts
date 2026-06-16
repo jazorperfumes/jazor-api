@@ -31,6 +31,9 @@ const schema = z.object({
 
   // Commerce constants (paise where applicable).
   FLAT_SHIPPING_PAISE: z.coerce.number().int().nonnegative().default(9900),
+  // Always-on free shipping when post-discount subtotal ≥ this. 0 disables it
+  // (then shipping is free only via a FREE_SHIPPING promotion).
+  FREE_SHIPPING_THRESHOLD_PAISE: z.coerce.number().int().nonnegative().default(259900),
   GIFT_WRAP_PAISE: z.coerce.number().int().nonnegative().default(4900),
 
   // Public contact channels surfaced via /api/settings/public.

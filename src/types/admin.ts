@@ -76,6 +76,10 @@ export interface AdminProductVariantDto {
   /** paise */
   price: number;
   stock: number;
+  weightGrams: number | null;
+  lengthCm: number | null;
+  breadthCm: number | null;
+  heightCm: number | null;
   isActive: boolean;
   deletedAt: string | null;
 }
@@ -213,6 +217,10 @@ export interface AdminVariantCreateRequest {
   sizeMl: number;
   price: number; // paise
   stock?: number;
+  weightGrams?: number;
+  lengthCm?: number;
+  breadthCm?: number;
+  heightCm?: number;
   isActive?: boolean;
 }
 
@@ -220,6 +228,10 @@ export interface AdminVariantPatchRequest {
   sku?: string;
   sizeMl?: number;
   price?: number;
+  weightGrams?: number | null;
+  lengthCm?: number | null;
+  breadthCm?: number | null;
+  heightCm?: number | null;
   isActive?: boolean;
 }
 
@@ -340,9 +352,18 @@ export interface AdminOrderShipmentDto {
   awb: string | null;
   trackingUrl: string | null;
   weightGrams: number | null;
+  /** provider freight charged for this shipment, paise */
+  shippingChargePrice: number | null;
   shippedAt: string | null;
   deliveredAt: string | null;
   createdAt: string;
+}
+
+export interface PackageDimensions {
+  weightGrams: number;
+  lengthCm: number;
+  breadthCm: number;
+  heightCm: number;
 }
 
 export interface AdminOrderPaymentDto {
@@ -375,6 +396,10 @@ export interface AdminOrderDetailDto {
   shippingPrice: number;
   giftWrapPrice: number;
   totalPrice: number;
+  /** auto-computed package for the ship/rate-shop form (editable) */
+  suggestedPackage: PackageDimensions;
+  /** order.shippingPrice − latest shipment freight; null until shipped */
+  shippingMargin: number | null;
   promotions: AppliedPromotionDto[];
   giftWrap: boolean;
   giftMessage: string | null;

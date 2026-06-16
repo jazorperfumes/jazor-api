@@ -130,6 +130,14 @@ function formatPaiseInr(paise: number): string {
   })}`;
 }
 
+function formatDeliveryDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
@@ -215,9 +223,15 @@ export function orderConfirmationEmail(order: OrderDetailDto) {
   const greeting = order.shippingAddress.contactName
     ? `Hi ${escapeHtml(order.shippingAddress.contactName)},`
     : "Hi,";
+  const etaLine = order.estimatedDeliveryAt
+    ? para(
+        `Estimated delivery by <strong>${formatDeliveryDate(order.estimatedDeliveryAt)}</strong>.`,
+      )
+    : "";
   const body = `${heading("Thank you for your order")}
 ${para(greeting)}
 ${para(`Your order has been confirmed. We'll let you know as soon as it ships. Your reference number is <strong>${escapeHtml(order.orderNumber)}</strong>.`)}
+${etaLine}
 ${goldRule()}
 ${renderOrderItemsHtml(order)}
 ${renderOrderTotalsHtml(order)}

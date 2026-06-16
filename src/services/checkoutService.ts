@@ -1,7 +1,9 @@
 import { env } from "../env.js";
+import { prisma } from "../lib/prisma.js";
 import * as cartService from "./cartService.js";
 import * as promotionsService from "./promotionsService.js";
 import type { EngineResult } from "./promotionsService.js";
+import { computePackage, checkDelivery } from "./shipping/rating.js";
 import type { CartDto } from "../types/cart.js";
 import type { QuoteItemDto, QuoteRequest, QuoteResponse } from "../types/checkout.js";
 
@@ -17,6 +19,9 @@ function emptyQuote(): QuoteResponse {
     bxgyOffers: [],
     rejectedCodes: [],
     issues: ["CART_EMPTY"],
+    serviceable: true,
+    estimatedDeliveryDays: null,
+    freeShippingThresholdPaise: env.FREE_SHIPPING_THRESHOLD_PAISE,
   };
 }
 
@@ -54,18 +59,53 @@ export async function quoteDetailed(
 
   const cartSubtotal = items.reduce((s, i) => s + i.lineTotal, 0);
 
-  const engine = await promotionsService.applyPromotions({
-    userId,
-    items: cart.items.map((i) => ({
-      variantId: i.variantId,
-      qty: i.qty,
-      unitPrice: i.unitPrice,
-      lineTotal: i.lineTotal,
-    })),
-    subtotalPrice: cartSubtotal,
-    discountCodes: input.discountCodes ?? [],
-    giftSelections: input.giftSelections ?? [],
+  // Parcel package (per-SKU dims, DEFAULT_PACKAGE fallback) for the courier
+  // serviceability + ETA check only — not for pricing.
+  const variantDims = await prisma.productVariant.findMany({
+    where: { id: { in: cart.items.map((i) => i.variantId) } },
+    select: {
+      id: true,
+      weightGrams: true,
+      lengthCm: true,
+      breadthCm: true,
+      heightCm: true,
+    },
   });
+  const dimsById = new Map(variantDims.map((v) => [v.id, v]));
+  const pkg = computePackage(
+    cart.items.map((i) => {
+      const d = dimsById.get(i.variantId);
+      return {
+        weightGrams: d?.weightGrams ?? null,
+        lengthCm: d?.lengthCm ?? null,
+        breadthCm: d?.breadthCm ?? null,
+        heightCm: d?.heightCm ?? null,
+        qty: i.qty,
+      };
+    }),
+  );
+
+  // Shipping price (flat / free-over-threshold / promo) is computed inside the
+  // promotion engine. The courier is consulted only for serviceability + ETA.
+  const [delivery, engine] = await Promise.all([
+    checkDelivery({
+      deliveryPincode: input.pincode ?? null,
+      pkg,
+      declaredValuePaise: cartSubtotal,
+    }),
+    promotionsService.applyPromotions({
+      userId,
+      items: cart.items.map((i) => ({
+        variantId: i.variantId,
+        qty: i.qty,
+        unitPrice: i.unitPrice,
+        lineTotal: i.lineTotal,
+      })),
+      subtotalPrice: cartSubtotal,
+      discountCodes: input.discountCodes ?? [],
+      giftSelections: input.giftSelections ?? [],
+    }),
+  ]);
 
   // Gift lines are shown as free (₹0) line items — not folded into subtotal then
   // discounted back out. Their retail value lives on the BxGy promotion record
@@ -94,6 +134,9 @@ export async function quoteDetailed(
   const issues: QuoteResponse["issues"] = [];
   if (items.some((i) => !i.inStock)) issues.push("OUT_OF_STOCK");
   if (engine.bxgyGiftRequired) issues.push("BXGY_GIFT_REQUIRED");
+  // Only flag non-serviceable once a live serviceability check actually ran
+  // (provider enabled + pincode known).
+  if (!delivery.serviceable) issues.push("NOT_SERVICEABLE");
 
   const quote: QuoteResponse = {
     items,
@@ -106,6 +149,9 @@ export async function quoteDetailed(
     bxgyOffers: engine.bxgyOffers,
     rejectedCodes: engine.rejectedCodes,
     issues,
+    serviceable: delivery.serviceable,
+    estimatedDeliveryDays: delivery.estimatedDeliveryDays,
+    freeShippingThresholdPaise: env.FREE_SHIPPING_THRESHOLD_PAISE,
   };
 
   return { quote, engine, cart };
