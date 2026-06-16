@@ -11,6 +11,7 @@ import type {
   RejectedCodeDto,
   RejectedCodeReason,
 } from "../types/promotion.js";
+import { firstImageOf } from "./productImage.js";
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
@@ -140,11 +141,11 @@ async function loadGiftVariants(variantIds: string[]): Promise<Map<string, GiftV
   if (variantIds.length === 0) return new Map();
   const rows = await prisma.productVariant.findMany({
     where: { id: { in: variantIds } },
-    include: { product: { include: { images: true } } },
+    include: { images: true, product: true },
   });
   const map = new Map<string, GiftVariantData>();
   for (const v of rows) {
-    const primary = v.product.images.slice().sort((a, b) => a.position - b.position)[0];
+    const primary = firstImageOf(v.images);
     const inStock =
       v.isActive && v.deletedAt == null && v.product.isActive && v.product.deletedAt == null && v.stock > 0;
     map.set(v.id, {

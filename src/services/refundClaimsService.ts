@@ -17,6 +17,7 @@ const REASON_CODES = new Set<RefundClaimReasonCode>(["DAMAGED_BOTTLE"]);
 interface SubmitInput {
   orderId: string;
   orderItemId: string;
+  quantity: number;
   reasonCode: RefundClaimReasonCode;
   userDescription: string;
   files: Express.Multer.File[];
@@ -66,6 +67,7 @@ function toDto(r: RefundWithImages): RefundClaimDto {
     reasonCode: r.reasonCode,
     userDescription: r.userDescription,
     reviewNote: r.reviewNote,
+    quantity: r.quantity,
     amountPrice: r.amountPrice,
     status: r.status,
     reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
@@ -114,10 +116,6 @@ export async function submit(userId: string, input: SubmitInput): Promise<Refund
       items: { where: { id: input.orderItemId }, take: 1 },
       payments: { where: { status: "CAPTURED" }, orderBy: { createdAt: "desc" }, take: 1 },
       shipments: { orderBy: { createdAt: "desc" }, take: 1 },
-      refunds: {
-        where: { orderItemId: input.orderItemId, kind: "DAMAGE_CLAIM" },
-        select: { id: true },
-      },
     },
   });
   if (!order) throw new HttpError(404, "NOT_FOUND", "Order not found");
@@ -134,9 +132,6 @@ export async function submit(userId: string, input: SubmitInput): Promise<Refund
   if (new Date() > eligibilityCutoff(lastShipment.deliveredAt)) {
     throw new HttpError(400, "REFUND_CLAIM_EXPIRED", "Claim window has closed");
   }
-  if (order.refunds.length > 0) {
-    throw new HttpError(409, "REFUND_CLAIM_EXISTS", "Claim already exists for this item");
-  }
   const capturedPayment = order.payments[0];
   if (!capturedPayment) {
     throw new HttpError(400, "REFUND_CLAIM_NOT_ELIGIBLE", "No captured payment to refund");
@@ -144,14 +139,71 @@ export async function submit(userId: string, input: SubmitInput): Promise<Refund
 
   const item = order.items[0];
 
+  // Free BxGy gift lines were never paid for — not refundable.
+  if (item.isGift) {
+    throw new HttpError(400, "REFUND_CLAIM_NOT_ELIGIBLE", "Free gift items are not refundable");
+  }
+
+  // Net amount the customer actually paid for THIS line: its line total minus its
+  // proportional share of the order's monetary discount. Shipping and gift-wrap
+  // are order-level charges (service already rendered) and are not refunded on a
+  // damage claim. Gift lines are excluded from both the discount pool and the
+  // paid-subtotal denominator.
+  const giftAgg = await prisma.orderItem.aggregate({
+    where: { orderId: order.id, isGift: true },
+    _sum: { lineTotalPrice: true },
+  });
+  const giftValue = giftAgg._sum.lineTotalPrice ?? 0;
+  const paidSubtotal = order.subtotalPrice - giftValue;
+  const monetaryDiscount = order.discountPrice - giftValue;
+  const discountShare =
+    paidSubtotal > 0 && monetaryDiscount > 0
+      ? Math.round((monetaryDiscount * item.lineTotalPrice) / paidSubtotal)
+      : 0;
+  const netLine = Math.max(0, item.lineTotalPrice - discountShare);
+
+  // Claims are per-unit: a line of qty N can be claimed across multiple requests
+  // until the cumulative claimed units reach N. Rejected claims free their units.
+  const settleable = (s: RefundClaimDto["status"]) => s !== "REJECTED";
+
+  // Refund per claim = round(netLine / qty) × units, except the claim that
+  // consumes the final remaining units gets the leftover so the line never
+  // over- or under-refunds due to rounding.
+  const computeAmount = (
+    units: number,
+    remainingUnits: number,
+    alreadyRefunded: number,
+  ): number => {
+    const perUnit = Math.round(netLine / item.qty);
+    const isLast = units === remainingUnits;
+    const raw = isLast ? netLine - alreadyRefunded : perUnit * units;
+    return Math.max(0, Math.min(raw, netLine - alreadyRefunded));
+  };
+
   const refundId = await prisma.$transaction(async (tx) => {
-    // Defensive: re-check uniqueness inside tx (closes race between two parallel submits).
-    const dup = await tx.refund.findFirst({
+    // Lock the order-item row first so concurrent claims on the same line
+    // serialize: under READ COMMITTED two parallel submits would otherwise both
+    // read the same claimed total (neither insert committed yet) and jointly
+    // over-claim the line. FOR UPDATE makes the second submit block until the
+    // first commits, then it reads the new row.
+    await tx.$queryRaw`SELECT id FROM "OrderItem" WHERE id = ${item.id} FOR UPDATE`;
+
+    const prior = await tx.refund.findMany({
       where: { orderItemId: item.id, kind: "DAMAGE_CLAIM" },
-      select: { id: true },
+      select: { quantity: true, amountPrice: true, status: true },
     });
-    if (dup) {
-      throw new HttpError(409, "REFUND_CLAIM_EXISTS", "Claim already exists for this item");
+    const active = prior.filter((p) => settleable(p.status));
+    const claimedQty = active.reduce((s, p) => s + p.quantity, 0);
+    const claimedAmount = active.reduce((s, p) => s + p.amountPrice, 0);
+    const remainingQty = item.qty - claimedQty;
+    if (remainingQty <= 0) {
+      throw new HttpError(409, "REFUND_CLAIM_EXISTS", "All units of this item are already claimed");
+    }
+    if (input.quantity > remainingQty) {
+      throw new HttpError(400, "VALIDATION_ERROR", "Quantity exceeds claimable units", {
+        remainingQty,
+        requested: input.quantity,
+      });
     }
 
     const refund = await tx.refund.create({
@@ -162,7 +214,8 @@ export async function submit(userId: string, input: SubmitInput): Promise<Refund
         kind: "DAMAGE_CLAIM",
         reasonCode: input.reasonCode,
         userDescription: input.userDescription.trim(),
-        amountPrice: item.lineTotalPrice,
+        quantity: input.quantity,
+        amountPrice: computeAmount(input.quantity, remainingQty, claimedAmount),
         status: "REQUESTED",
         createdByUserId: userId,
       },
@@ -239,19 +292,22 @@ export async function listForOrder(userId: string, orderId: string): Promise<Ref
 }
 
 /**
- * Per-item claim eligibility for the UI: returns the set of orderItemIds that
- * (a) belong to a delivered order within the claim window AND
- * (b) have no existing DAMAGE_CLAIM refund.
+ * Per-item claim eligibility for the UI: for a delivered order within the claim
+ * window, returns each non-gift line that still has unclaimed units, with the
+ * remaining claimable quantity. Rejected claims free their units.
  */
-export async function eligibleItemIds(userId: string, orderId: string): Promise<string[]> {
+export async function eligibleItems(
+  userId: string,
+  orderId: string,
+): Promise<{ orderItemId: string; remaining: number }[]> {
   const order = await prisma.order.findFirst({
     where: { id: orderId, userId },
     include: {
-      items: { select: { id: true } },
+      items: { select: { id: true, isGift: true, qty: true } },
       shipments: { orderBy: { createdAt: "desc" }, take: 1 },
       refunds: {
-        where: { kind: "DAMAGE_CLAIM" },
-        select: { orderItemId: true },
+        where: { kind: "DAMAGE_CLAIM", status: { not: "REJECTED" } },
+        select: { orderItemId: true, quantity: true },
       },
     },
   });
@@ -260,6 +316,15 @@ export async function eligibleItemIds(userId: string, orderId: string): Promise<
   const delivered = order.shipments[0]?.deliveredAt;
   if (!delivered) return [];
   if (new Date() > eligibilityCutoff(delivered)) return [];
-  const claimed = new Set(order.refunds.map((r) => r.orderItemId).filter(Boolean) as string[]);
-  return order.items.filter((i) => !claimed.has(i.id)).map((i) => i.id);
+
+  const claimedByItem = new Map<string, number>();
+  for (const r of order.refunds) {
+    if (!r.orderItemId) continue;
+    claimedByItem.set(r.orderItemId, (claimedByItem.get(r.orderItemId) ?? 0) + r.quantity);
+  }
+  // Free gift lines aren't refundable — never offer them as claimable.
+  return order.items
+    .filter((i) => !i.isGift)
+    .map((i) => ({ orderItemId: i.id, remaining: i.qty - (claimedByItem.get(i.id) ?? 0) }))
+    .filter((i) => i.remaining > 0);
 }

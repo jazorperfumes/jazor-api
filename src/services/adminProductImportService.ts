@@ -64,7 +64,11 @@ export const IMPORT_COLUMNS = [
   "sku_100",
   "price_100",
   "stock_100",
+  // per-variant image URLs; `images` is a shared fallback applied to every
+  // variant that has no size-specific column.
   "images",
+  "images_50",
+  "images_100",
 ] as const;
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -107,6 +111,7 @@ interface VariantSpec {
   sizeMl: number;
   price: number;
   stock: number;
+  imageUrls: string[];
 }
 
 interface ValidRow {
@@ -127,7 +132,6 @@ interface ValidRow {
   isFeatured: boolean;
   isActive: boolean;
   variants: VariantSpec[];
-  imageUrls: string[];
 }
 
 interface ParseResult {
@@ -237,6 +241,13 @@ function validateRows(raw: RawRow[]): ParseResult {
     const badOcc = occasions.filter((o) => !OCCASIONS.has(o));
     if (badOcc.length) msgs.push(`invalid occasions: ${badOcc.join(", ")}`);
 
+    // Per-variant image URLs: size-specific column wins, else shared `images`.
+    const sharedImages = splitList(r.images);
+    const variantImages = (sizeMl: number): string[] => {
+      const sized = splitList(r[`images_${sizeMl}`]);
+      return sized.length > 0 ? sized : sharedImages;
+    };
+
     // variants (fixed 50ml / 100ml)
     const variants: VariantSpec[] = [];
     const variantInputs: Array<{ sizeMl: number; sku?: string; price?: string; stock?: string }> = [
@@ -254,17 +265,21 @@ function validateRows(raw: RawRow[]): ParseResult {
         msgs.push(`price_${vi.sizeMl} must be a non-negative rupee amount`);
       const stock = vi.stock && vi.stock.trim() ? intInRange(vi.stock, 0, 1_000_000) : 0;
       if (stock === null) msgs.push(`stock_${vi.sizeMl} must be a non-negative integer`);
+
+      const imageUrls = variantImages(vi.sizeMl);
+      const badUrls = imageUrls.filter((u) => !isHttpUrl(u));
+      if (badUrls.length)
+        msgs.push(`image URLs must start with http(s): ${badUrls.join(", ")}`);
+      // Images are optional at import: a variant may instead receive its
+      // image(s) via manual upload in the wizard. The wizard enforces
+      // >=1 image per variant (counting manual uploads) before saving.
+
       if (price !== null && stock !== null) {
-        variants.push({ sku, sizeMl: vi.sizeMl, price, stock });
+        variants.push({ sku, sizeMl: vi.sizeMl, price, stock, imageUrls });
       }
     }
     if (variants.length === 0 && !msgs.some((m) => m.startsWith("price") || m.startsWith("stock")))
       msgs.push("at least one variant required (sku_50 or sku_100)");
-
-    // images
-    const imageUrls = splitList(r.images);
-    const badUrls = imageUrls.filter((u) => !isHttpUrl(u));
-    if (badUrls.length) msgs.push(`image URLs must start with http(s): ${badUrls.join(", ")}`);
 
     if (slug && !seenSlugs.has(slug)) seenSlugs.set(slug, row);
 
@@ -294,7 +309,6 @@ function validateRows(raw: RawRow[]): ParseResult {
       isFeatured: truthy(r.is_featured),
       isActive: r.is_active === undefined || r.is_active === "" ? true : truthy(r.is_active),
       variants,
-      imageUrls,
     });
   });
 
@@ -513,13 +527,11 @@ export async function applyOne(
   try {
     // Insert product + variants first; CSV image links are fetched onto our
     // server afterwards so a slow/broken link never holds the DB transaction.
-    const productId = await insertOne(target, { skipImages: true });
+    const productId = await insertOne(target);
     const messages: string[] = [];
-    if (target.imageUrls.length > 0) {
-      const failed = await persistCsvImages(productId, target.imageUrls);
-      if (failed > 0) {
-        messages.push(`${failed} image link(s) could not be downloaded`);
-      }
+    const failed = await persistCsvImages(productId, target.variants);
+    if (failed > 0) {
+      messages.push(`${failed} image link(s) could not be downloaded`);
     }
     return { ok: true, productId, slug: target.slug, status: "new", messages };
   } catch (e) {
@@ -529,10 +541,7 @@ export async function applyOne(
 
 // ─── insert one valid row (product + variants + images) atomically ───────────
 
-async function insertOne(
-  r: ValidRow,
-  opts?: { skipImages?: boolean },
-): Promise<string> {
+async function insertOne(r: ValidRow): Promise<string> {
   return prisma.$transaction(async (tx) => {
     const product = await tx.product.create({
       data: {
@@ -565,15 +574,9 @@ async function insertOne(
         })),
       });
     }
-    if (!opts?.skipImages && r.imageUrls.length > 0) {
-      await tx.productImage.createMany({
-        data: r.imageUrls.map((url, idx) => ({
-          productId: product.id,
-          url,
-          position: idx,
-        })),
-      });
-    }
+    // Images are re-hosted outside the transaction (slow network) and are
+    // per-variant now, so they are created in persistCsvImages once variant
+    // rows exist.
     return product.id;
   });
 }
@@ -633,29 +636,40 @@ async function downloadImage(
 }
 
 /**
- * For each CSV image URL, re-host on Cloudinary + create a ProductImage row.
- * Returns count of links that failed. Best-effort: never throws.
+ * For each variant's CSV image URLs, re-host on Cloudinary + create per-variant
+ * ProductImage rows. Returns count of links that failed. Best-effort: never
+ * throws. Matches variants by SKU against the freshly inserted rows.
  */
 async function persistCsvImages(
   productId: string,
-  imageUrls: string[],
+  variants: VariantSpec[],
 ): Promise<number> {
+  const rows = await prisma.productVariant.findMany({
+    where: { productId },
+    select: { id: true, sku: true },
+  });
+  const idBySku = new Map(rows.map((r) => [r.sku, r.id]));
+
   let failed = 0;
-  let position = 0;
-  for (const url of imageUrls) {
-    const uploaded = await downloadImage(url, productId);
-    if (!uploaded) {
-      failed++;
-      continue;
+  for (const v of variants) {
+    const variantId = idBySku.get(v.sku);
+    if (!variantId) continue;
+    let position = 0;
+    for (const url of v.imageUrls) {
+      const uploaded = await downloadImage(url, productId);
+      if (!uploaded) {
+        failed++;
+        continue;
+      }
+      await prisma.productImage.create({
+        data: {
+          variantId,
+          url: uploaded.url,
+          publicId: uploaded.publicId,
+          position: position++,
+        },
+      });
     }
-    await prisma.productImage.create({
-      data: {
-        productId,
-        url: uploaded.url,
-        publicId: uploaded.publicId,
-        position: position++,
-      },
-    });
   }
   return failed;
 }
@@ -692,6 +706,8 @@ export function templateCsv(): string {
     "4499",
     "15",
     '"https://example.com/oud-royale.jpg"',
+    '"https://example.com/oud-royale-50.jpg"',
+    '"https://example.com/oud-royale-100.jpg"',
   ].join(",");
   return `${header}\n${example}\n`;
 }

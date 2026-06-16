@@ -113,12 +113,13 @@ export async function generateInvoice(order: OrderDetailDto): Promise<Buffer> {
 
     let rowY = tableY + 24;
     for (const item of order.items) {
-      doc.fillColor(INK).text(`${item.name.en}`, 50, rowY, { width: 250, continued: false });
+      const label = item.isGift ? `${item.name.en} (gift)` : item.name.en;
+      doc.fillColor(INK).text(label, 50, rowY, { width: 250, continued: false });
       doc.fillColor(MUTED).fontSize(8).text(`${item.sizeMl}ml`, 50, rowY + 12, { width: 250 });
       doc.fillColor(INK).fontSize(10);
       doc.text(String(item.qty), 320, rowY, { width: 50, align: "right" });
-      doc.text(formatRupees(item.unitPrice), 380, rowY, { width: 70, align: "right" });
-      doc.text(formatRupees(item.lineTotalPrice), 460, rowY, { width: 85, align: "right" });
+      doc.text(item.isGift ? "Free" : formatRupees(item.unitPrice), 380, rowY, { width: 70, align: "right" });
+      doc.text(item.isGift ? "Free" : formatRupees(item.lineTotalPrice), 460, rowY, { width: 85, align: "right" });
       rowY += 30;
     }
 
@@ -142,7 +143,12 @@ export async function generateInvoice(order: OrderDetailDto): Promise<Buffer> {
     };
     totalRow("Subtotal", formatRupees(order.subtotalPrice));
     if (order.discountPrice > 0) {
-      const codes = order.promotions.map((p) => p.code).filter(Boolean);
+      // Only monetary promos contribute to discountPrice — exclude BxGy gift
+      // codes (the gift shows as a free line item above).
+      const codes = order.promotions
+        .filter((p) => p.rewardType === "PERCENT" || p.rewardType === "FLAT")
+        .map((p) => p.code)
+        .filter(Boolean);
       const label = codes.length > 0 ? `Discount (${codes.join(", ")})` : "Discount";
       totalRow(label, `−${formatRupees(order.discountPrice)}`);
     }

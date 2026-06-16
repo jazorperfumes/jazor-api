@@ -9,3 +9,6 @@ export const siteCopy = {
     ar: "شحن مجاني للطلبات التي تزيد عن ١٬٩٩٩ روبية.",
   },
 } as const;
+
+/** Hard ceiling on units of a single variant in one cart line. */
+export const MAX_CART_QTY = 10;

@@ -11,6 +11,17 @@ import type { PublicUserDto } from "../types/auth.js";
 const RESET_TTL_MS = 60 * 60 * 1000; // 1h
 const OTP_TTL_MS = 10 * 60 * 1000; // 10m
 const OTP_MAX_ATTEMPTS = 5;
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000; // 1m — throttle re-sends so login/resend can't spam an inbox
+
+/**
+ * True if an OTP was issued within the cooldown window. `emailOtpExpiresAt`
+ * encodes the send time (issuedAt = expiresAt − OTP_TTL_MS); no extra column.
+ */
+function otpRecentlySent(expiresAt: Date | null): boolean {
+  if (!expiresAt) return false;
+  const issuedAt = expiresAt.getTime() - OTP_TTL_MS;
+  return Date.now() - issuedAt < OTP_RESEND_COOLDOWN_MS;
+}
 
 function signAuthToken(payload: JwtPayload): string {
   const options: SignOptions = { expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"] };
@@ -73,20 +84,24 @@ export async function register(input: { email: string; password: string; name?: 
   const email = input.email.toLowerCase().trim();
   const existing = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, name: true, emailVerifiedAt: true },
+    select: { id: true, name: true, emailVerifiedAt: true, emailOtpExpiresAt: true },
   });
 
   if (existing) {
     if (existing.emailVerifiedAt) {
       throw new HttpError(409, "EMAIL_EXISTS", "Email already registered");
     }
-    // Unverified re-signup: refresh password + name, re-send OTP.
+    // Unverified re-signup: refresh password + name, re-send OTP (throttled so
+    // repeat signups on the same email can't bomb the inbox; the prior code
+    // stays valid for its TTL).
     const passwordHash = await bcrypt.hash(input.password, 10);
     await prisma.user.update({
       where: { id: existing.id },
       data: { passwordHash, name: input.name ?? existing.name ?? null },
     });
-    await issueEmailOtp(existing.id, email, input.name ?? existing.name ?? null);
+    if (!otpRecentlySent(existing.emailOtpExpiresAt)) {
+      await issueEmailOtp(existing.id, email, input.name ?? existing.name ?? null);
+    }
     return { email };
   }
 
@@ -110,6 +125,7 @@ export async function login(input: { email: string; password: string }): Promise
       name: true,
       role: true,
       emailVerifiedAt: true,
+      emailOtpExpiresAt: true,
       createdAt: true
     }
   });
@@ -119,9 +135,11 @@ export async function login(input: { email: string; password: string }): Promise
   if (!ok) throw new HttpError(401, "INVALID_CREDENTIALS", "Invalid credentials");
 
   // Mandatory verification: unverified accounts can't get a session. Re-send an
-  // OTP and bounce the caller to the verify screen.
+  // OTP (throttled) and bounce the caller to the verify screen.
   if (!user.emailVerifiedAt) {
-    await issueEmailOtp(user.id, user.email, user.name);
+    if (!otpRecentlySent(user.emailOtpExpiresAt)) {
+      await issueEmailOtp(user.id, user.email, user.name);
+    }
     throw new HttpError(403, "EMAIL_NOT_VERIFIED", "Please verify your email to continue");
   }
 
@@ -261,9 +279,11 @@ export async function resendEmailOtp(email: string): Promise<void> {
   const normalized = email.toLowerCase().trim();
   const user = await prisma.user.findUnique({
     where: { email: normalized },
-    select: { id: true, email: true, name: true, emailVerifiedAt: true },
+    select: { id: true, email: true, name: true, emailVerifiedAt: true, emailOtpExpiresAt: true },
   });
   if (!user || user.emailVerifiedAt) return;
+  // Throttle — ignore rapid repeat requests so an attacker can't bomb the inbox.
+  if (otpRecentlySent(user.emailOtpExpiresAt)) return;
   try {
     await issueEmailOtp(user.id, user.email, user.name);
   } catch (e) {

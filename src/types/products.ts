@@ -51,6 +51,8 @@ export interface VariantSummaryDto {
 
 export interface ProductImageSummaryDto {
   id: string;
+  /** owning variant — images are per-variant (50ml vs 100ml differ) */
+  variantId: string;
   url: string;
   alt: I18nString | null;
 }

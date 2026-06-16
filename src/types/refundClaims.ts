@@ -38,6 +38,7 @@ export interface RefundClaimDto {
   reasonCode: RefundClaimReasonCode | null;
   userDescription: string | null;
   reviewNote: string | null;
+  quantity: number;
   amountPrice: number;
   status: RefundClaimStatus;
   reviewedAt: string | null;
@@ -60,6 +61,15 @@ export interface RefundClaimListResponse {
   page: number;
   pageSize: number;
   total: number;
+}
+
+export interface RefundClaimEligibleItemDto {
+  orderItemId: string;
+  remaining: number;
+}
+
+export interface RefundClaimEligibleResponse {
+  items: RefundClaimEligibleItemDto[];
 }
 
 export interface RefundClaimReviewRequest {

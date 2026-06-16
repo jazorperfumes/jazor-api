@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../middleware/error.js";
+import { pickPrimaryImage } from "./productImage.js";
 import type {
   I18nList,
   I18nString,
@@ -28,10 +29,13 @@ import type {
 
 export type PrismaListProduct = Prisma.ProductGetPayload<{
   include: {
-    variants: true;
-    images: true;
+    variants: { include: { images: true } };
   };
 }>;
+
+const listInclude = {
+  variants: { include: { images: true } },
+} satisfies Prisma.ProductInclude;
 
 interface FilterShape {
   collection?: ProductListQuery["collection"];
@@ -98,9 +102,14 @@ export function toListItemDto(p: PrismaListProduct): ProductListItemDto {
       inStock: v.stock > 0,
     }));
 
-  const primary = p.images.slice().sort((a, b) => a.position - b.position)[0];
+  const primary = pickPrimaryImage(p.variants);
   const primaryImage = primary
-    ? { id: primary.id, url: primary.url, alt: jsonToI18nNullable(primary.alt) }
+    ? {
+        id: primary.id,
+        variantId: primary.variantId,
+        url: primary.url,
+        alt: jsonToI18nNullable(primary.alt),
+      }
     : null;
 
   const prices = activeVariants.map((v) => v.price);
@@ -134,7 +143,7 @@ async function listOrderedDefault(
       orderBy,
       skip,
       take,
-      include: { variants: true, images: true },
+      include: listInclude,
     }),
     prisma.product.count({ where }),
   ]);
@@ -217,7 +226,7 @@ async function listRaw(
 
   const products = await prisma.product.findMany({
     where: { id: { in: ids } },
-    include: { variants: true, images: true },
+    include: listInclude,
   });
   const byId = new Map(products.map((p) => [p.id, p]));
   const ordered = ids.map((id) => byId.get(id)).filter((x): x is PrismaListProduct => Boolean(x));
@@ -285,32 +294,41 @@ export async function detail(slug: string): Promise<ProductDetailDto> {
   const product = await prisma.product.findFirst({
     where: { slug, isActive: true, deletedAt: null },
     include: {
-      variants: { where: { isActive: true, deletedAt: null } },
-      images: true,
+      variants: {
+        where: { isActive: true, deletedAt: null },
+        include: { images: true },
+      },
     },
   });
   if (!product) throw new HttpError(404, "NOT_FOUND", "Product not found");
 
-  const variants = product.variants
+  const sortedVariants = product.variants
     .slice()
-    .sort((a, b) => a.sizeMl - b.sizeMl)
-    .map((v) => ({
-      id: v.id,
-      sku: v.sku,
-      sizeMl: v.sizeMl,
-      price: v.price,
-      stock: v.stock,
-      inStock: v.stock > 0,
-    }));
+    .sort((a, b) => a.sizeMl - b.sizeMl);
 
-  const images = product.images
-    .slice()
-    .sort((a, b) => a.position - b.position)
-    .map((img) => ({
-      id: img.id,
-      url: img.url,
-      alt: jsonToI18nNullable(img.alt),
-    }));
+  const variants = sortedVariants.map((v) => ({
+    id: v.id,
+    sku: v.sku,
+    sizeMl: v.sizeMl,
+    price: v.price,
+    stock: v.stock,
+    inStock: v.stock > 0,
+  }));
+
+  // Images are per-variant: flatten across variants (variant order, then
+  // position within a variant) and tag each with its owning variantId so the
+  // UI can swap the gallery when the shopper switches size.
+  const images = sortedVariants.flatMap((v) =>
+    v.images
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((img) => ({
+        id: img.id,
+        variantId: v.id,
+        url: img.url,
+        alt: jsonToI18nNullable(img.alt),
+      })),
+  );
 
   // Aggregate review stats. Auto-approved reviews land with APPROVED status per
   // decision 11; PENDING/REJECTED are excluded.
@@ -434,7 +452,7 @@ export async function related(slug: string): Promise<RelatedProductsResponse> {
     },
     orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
     take: RELATED_LIMIT,
-    include: { variants: true, images: true },
+    include: listInclude,
   });
 
   let pool = sameFamilyCollection;
@@ -449,7 +467,7 @@ export async function related(slug: string): Promise<RelatedProductsResponse> {
       },
       orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
       take: RELATED_LIMIT - pool.length,
-      include: { variants: true, images: true },
+      include: listInclude,
     });
     pool = [...pool, ...fillers];
   }

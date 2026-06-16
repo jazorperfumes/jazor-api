@@ -145,7 +145,7 @@ function renderOrderItemsHtml(order: OrderDetailDto): string {
   const rows = order.items
     .map(
       (i) =>
-        `<tr><td style="${cell};color:${BRAND.ink}">${escapeHtml(i.name.en)} <span style="color:${BRAND.muted}">· ${i.sizeMl}ml</span></td><td style="${cell};text-align:right;color:${BRAND.muted}">×${i.qty}</td><td style="${cell};text-align:right;color:${BRAND.ink}">${formatPaiseInr(i.lineTotalPrice)}</td></tr>`,
+        `<tr><td style="${cell};color:${BRAND.ink}">${escapeHtml(i.name.en)}${i.isGift ? " <span style=\"color:" + BRAND.muted + "\">(gift)</span>" : ""} <span style="color:${BRAND.muted}">· ${i.sizeMl}ml</span></td><td style="${cell};text-align:right;color:${BRAND.muted}">×${i.qty}</td><td style="${cell};text-align:right;color:${BRAND.ink}">${i.isGift ? "Free" : formatPaiseInr(i.lineTotalPrice)}</td></tr>`,
     )
     .join("");
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:8px 0"><tbody>${rows}</tbody></table>`;
@@ -162,7 +162,12 @@ function renderOrderTotalsHtml(order: OrderDetailDto): string {
   };
   const rows: string[] = [row("Subtotal", formatPaiseInr(order.subtotalPrice))];
   if (order.discountPrice > 0) {
-    const codes = order.promotions.map((p) => p.code).filter(Boolean);
+    // Only monetary promos contribute to discountPrice — a BxGy gift code must
+    // not appear next to this amount (its gift shows as a free line item).
+    const codes = order.promotions
+      .filter((p) => p.rewardType === "PERCENT" || p.rewardType === "FLAT")
+      .map((p) => p.code)
+      .filter(Boolean);
     const label = codes.length > 0 ? `Discount (${escapeHtml(codes.join(", "))})` : "Discount";
     rows.push(row(label, `−${formatPaiseInr(order.discountPrice)}`));
   }
@@ -269,6 +274,22 @@ export function adminOrderAlertEmail(order: OrderDetailDto) {
 <p>Customer: ${escapeHtml(order.shippingAddress.contactName)} (${escapeHtml(order.email)}, ${escapeHtml(order.phone)})</p>
 <table style="width:100%;border-collapse:collapse;font-size:14px"><tbody>${rows}</tbody></table>
 <p><strong>Total:</strong> ${formatPaiseInr(order.totalPrice)}</p>`,
+  };
+}
+
+/**
+ * Captured payment landed on an order that was no longer CREATED (e.g. the
+ * stock-reaper cancelled it first). Money is in, stock was already restored —
+ * a human must re-stock + ship or issue a refund.
+ */
+export function adminPaidAfterCancelEmail(order: OrderDetailDto) {
+  return {
+    subject: `⚠ Payment on cancelled order — ${order.orderNumber} · ${formatPaiseInr(order.totalPrice)}`,
+    text: `Payment was captured for order ${order.orderNumber} (${formatPaiseInr(order.totalPrice)}, ${order.email}) but the order was already in status ${order.status} (likely auto-cancelled before payment landed). Stock was restored. Reconcile manually: re-stock + ship, or refund the customer.`,
+    html: `<p><strong>⚠ Payment captured on a non-active order</strong></p>
+<p>Order: ${escapeHtml(order.orderNumber)}<br/>Current status: <strong>${escapeHtml(order.status)}</strong><br/>Customer: ${escapeHtml(order.email)}, ${escapeHtml(order.phone)}<br/>Amount captured: ${formatPaiseInr(order.totalPrice)}</p>
+<p>The order was no longer CREATED when payment landed (most likely auto-cancelled by the stock-reaper after the payment window). Stock has already been restored, so the order was NOT auto-marked PAID.</p>
+<p><strong>Action needed:</strong> verify stock and either re-stock + ship this order, or refund the customer.</p>`,
   };
 }
 

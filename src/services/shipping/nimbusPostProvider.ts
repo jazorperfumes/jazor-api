@@ -367,7 +367,13 @@ export class NimbusPostProvider implements ShippingProvider {
     const ts = parsed.timestamp ?? parsed.delivery_timestamp;
     const occurredAt = ts ? new Date(ts) : new Date();
     const eventType = parsed.event ?? "shipment.update";
-    const eventId = `nimbuspost:${eventType}:${awb ?? providerShipmentId}:${occurredAt.toISOString()}`;
+    // Idempotency key must be stable across provider retries. Derive it from
+    // shipment id + status (NOT wall-clock) so a retried event with no timestamp
+    // doesn't generate a fresh id and duplicate the ShipmentEvent row.
+    const statusKey = String(parsed.status_code ?? parsed.status ?? "unknown")
+      .trim()
+      .toUpperCase();
+    const eventId = `nimbuspost:${eventType}:${awb ?? providerShipmentId}:${statusKey}`;
 
     return {
       eventId,

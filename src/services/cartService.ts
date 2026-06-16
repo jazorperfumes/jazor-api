@@ -1,8 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../middleware/error.js";
+import { MAX_CART_QTY } from "../constants/site.js";
 import type { CartDto, CartItemDto } from "../types/cart.js";
 import type { I18nString } from "../types/products.js";
+import { firstImageOf } from "./productImage.js";
 
 type PrismaCartWithItems = Prisma.CartGetPayload<{
   include: {
@@ -10,7 +12,8 @@ type PrismaCartWithItems = Prisma.CartGetPayload<{
       include: {
         variant: {
           include: {
-            product: { include: { images: true } };
+            images: true;
+            product: true;
           };
         };
       };
@@ -24,7 +27,8 @@ const cartInclude = {
     include: {
       variant: {
         include: {
-          product: { include: { images: true } },
+          images: true,
+          product: true,
         },
       },
     },
@@ -45,7 +49,7 @@ function jsonToI18n(value: Prisma.JsonValue | null | undefined): I18nString {
 function toCartItemDto(item: PrismaCartWithItems["items"][number]): CartItemDto {
   const variant = item.variant;
   const product = variant.product;
-  const primary = product.images.slice().sort((a, b) => a.position - b.position)[0];
+  const primary = firstImageOf(variant.images);
   const inStock =
     variant.isActive &&
     variant.deletedAt == null &&
@@ -96,7 +100,25 @@ export async function getCart(userId: string): Promise<CartDto> {
   return toCartDto(cart);
 }
 
-const MAX_CART_QTY = 10;
+/**
+ * Enforce both ceilings on a desired line qty: the per-line max and live stock.
+ * Stock rejection mirrors the order-reserve contract (409 OUT_OF_STOCK +
+ * availableStock) so the UI can surface the same message at cart and checkout.
+ */
+function assertWithinLimits(desiredQty: number, stock: number): void {
+  if (desiredQty > MAX_CART_QTY) {
+    throw new HttpError(400, "VALIDATION_ERROR", `Max ${MAX_CART_QTY} per item`, {
+      max: MAX_CART_QTY,
+      requested: desiredQty,
+    });
+  }
+  if (desiredQty > stock) {
+    throw new HttpError(409, "OUT_OF_STOCK", "Not enough stock for requested quantity", {
+      availableStock: stock,
+      requested: desiredQty,
+    });
+  }
+}
 
 export async function addItem(
   userId: string,
@@ -110,7 +132,7 @@ export async function addItem(
       deletedAt: null,
       product: { isActive: true, deletedAt: null },
     },
-    select: { id: true },
+    select: { id: true, stock: true },
   });
   if (!variant) throw new HttpError(404, "NOT_FOUND", "Variant not found");
 
@@ -120,14 +142,7 @@ export async function addItem(
     select: { qty: true },
   });
   const nextQty = (existing?.qty ?? 0) + qty;
-  if (nextQty > MAX_CART_QTY) {
-    throw new HttpError(
-      400,
-      "VALIDATION_ERROR",
-      `Max ${MAX_CART_QTY} per item`,
-      { max: MAX_CART_QTY, requested: nextQty },
-    );
-  }
+  assertWithinLimits(nextQty, variant.stock);
   await prisma.cartItem.upsert({
     where: { cartId_variantId: { cartId: cart.id, variantId } },
     create: { cartId: cart.id, variantId, qty },
@@ -141,7 +156,11 @@ export async function addItem(
 async function loadOwnedItem(userId: string, itemId: string) {
   const item = await prisma.cartItem.findUnique({
     where: { id: itemId },
-    select: { id: true, cart: { select: { userId: true } } },
+    select: {
+      id: true,
+      cart: { select: { userId: true } },
+      variant: { select: { stock: true } },
+    },
   });
   // 404 (not 403) avoids leaking existence of items owned by other users.
   if (!item || item.cart.userId !== userId) {
@@ -155,7 +174,8 @@ export async function updateItemQty(
   itemId: string,
   qty: number,
 ): Promise<CartDto> {
-  await loadOwnedItem(userId, itemId);
+  const item = await loadOwnedItem(userId, itemId);
+  assertWithinLimits(qty, item.variant.stock);
   await prisma.cartItem.update({ where: { id: itemId }, data: { qty } });
   return getCart(userId);
 }

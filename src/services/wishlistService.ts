@@ -13,8 +13,7 @@ export async function list(userId: string): Promise<WishlistResponse> {
     include: {
       product: {
         include: {
-          variants: true,
-          images: true,
+          variants: { include: { images: true } },
         },
       },
     },

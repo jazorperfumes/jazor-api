@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma.js";
 import type { Collection, Family, Mood, Occasion, ProductListItemDto } from "../types/products.js";
 import type { ScentFinderMatchResponse } from "../types/scentFinder.js";
+import { pickPrimaryImage } from "./productImage.js";
 
 const MATCH_LIMIT = 3;
 
@@ -40,8 +41,10 @@ async function loadCandidates() {
   return prisma.product.findMany({
     where: { isActive: true, deletedAt: null },
     include: {
-      variants: { where: { isActive: true, deletedAt: null } },
-      images: true,
+      variants: {
+        where: { isActive: true, deletedAt: null },
+        include: { images: true },
+      },
     },
   });
 }
@@ -58,10 +61,11 @@ function toListItemDto(p: Awaited<ReturnType<typeof loadCandidates>>[number]): P
       inStock: v.stock > 0,
     }));
 
-  const primary = p.images.slice().sort((a, b) => a.position - b.position)[0];
+  const primary = pickPrimaryImage(p.variants);
   const primaryImage = primary
     ? {
         id: primary.id,
+        variantId: primary.variantId,
         url: primary.url,
         alt:
           primary.alt && typeof primary.alt === "object" && !Array.isArray(primary.alt)
