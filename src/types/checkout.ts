@@ -14,7 +14,8 @@ import type {
 export type QuoteIssue =
   | "CART_EMPTY"
   | "OUT_OF_STOCK"
-  | "BXGY_GIFT_REQUIRED";
+  | "BXGY_GIFT_REQUIRED"
+  | "NOT_SERVICEABLE";
 
 export interface GiftSelection {
   promotionId: string;
@@ -59,4 +60,10 @@ export interface QuoteResponse {
   bxgyOffers: BxGyOfferDto[];
   rejectedCodes: RejectedCodeDto[];
   issues: QuoteIssue[];
+  /** false = delivery pincode not serviceable by any courier (blocks placement) */
+  serviceable: boolean;
+  /** fastest serviceable-courier ETA in days; null in manual mode / no pincode */
+  estimatedDeliveryDays: number | null;
+  /** post-discount subtotal needed for free shipping; 0 = threshold disabled */
+  freeShippingThresholdPaise: number;
 }

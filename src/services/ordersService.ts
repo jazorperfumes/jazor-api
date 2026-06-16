@@ -217,6 +217,9 @@ function toOrderDetailDto(order: OrderWithRelations): OrderDetailDto {
     placedAt: order.placedAt.toISOString(),
     paidAt: order.paidAt ? order.paidAt.toISOString() : null,
     cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : null,
+    estimatedDeliveryAt: order.estimatedDeliveryAt
+      ? order.estimatedDeliveryAt.toISOString()
+      : null,
     email: order.email,
     phone: order.phone,
     shippingAddress: readAddress(order.shippingAddress),
@@ -287,15 +290,25 @@ export async function create(
 
   const address = await resolveAddress(userId, input);
 
-  // Re-quote server-side. Never trust client totals.
+  // Re-quote server-side. Never trust client totals. Pincode from the resolved
+  // delivery address drives the serviceability re-check (block undeliverable) and
+  // the stored delivery ETA.
   const { quote, engine, cart } = await checkoutService.quoteDetailed(userId, {
     discountCodes: input.discountCodes,
     giftSelections: input.giftSelections,
     giftWrap: input.giftWrap ?? false,
+    pincode: address.snapshot.pincode,
   });
 
   if (quote.issues.includes("CART_EMPTY") || cart.items.length === 0) {
     throw new HttpError(400, "CART_EMPTY", "Your cart is empty");
+  }
+  if (quote.issues.includes("NOT_SERVICEABLE")) {
+    throw new HttpError(
+      400,
+      "NOT_SERVICEABLE",
+      `Delivery is not available to ${address.snapshot.pincode}`,
+    );
   }
   if (quote.issues.includes("OUT_OF_STOCK")) {
     const oosItems = quote.items
@@ -392,6 +405,11 @@ export async function create(
         giftWrap: input.giftWrap ?? false,
         giftMessage: input.giftMessage ?? null,
         shippingAddress: address.snapshot as unknown as Prisma.InputJsonValue,
+        estimatedDeliveryDays: quote.estimatedDeliveryDays,
+        estimatedDeliveryAt:
+          quote.estimatedDeliveryDays != null
+            ? new Date(Date.now() + quote.estimatedDeliveryDays * 86_400_000)
+            : null,
         notes: input.notes ?? null,
         placedAt: new Date(),
       },

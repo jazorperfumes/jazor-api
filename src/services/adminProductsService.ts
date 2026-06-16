@@ -125,6 +125,10 @@ function toVariantDto(v: {
   sizeMl: number;
   price: number;
   stock: number;
+  weightGrams: number | null;
+  lengthCm: number | null;
+  breadthCm: number | null;
+  heightCm: number | null;
   isActive: boolean;
   deletedAt: Date | null;
 }): AdminProductVariantDto {
@@ -134,6 +138,10 @@ function toVariantDto(v: {
     sizeMl: v.sizeMl,
     price: v.price,
     stock: v.stock,
+    weightGrams: v.weightGrams,
+    lengthCm: v.lengthCm,
+    breadthCm: v.breadthCm,
+    heightCm: v.heightCm,
     isActive: v.isActive,
     deletedAt: v.deletedAt ? v.deletedAt.toISOString() : null,
   };
@@ -353,6 +361,10 @@ export async function variantCreate(
       sizeMl: input.sizeMl,
       price: input.price,
       stock: input.stock ?? 0,
+      weightGrams: input.weightGrams ?? null,
+      lengthCm: input.lengthCm ?? null,
+      breadthCm: input.breadthCm ?? null,
+      heightCm: input.heightCm ?? null,
       isActive: input.isActive ?? true,
     },
   });
@@ -381,6 +393,10 @@ export async function variantPatch(
   if (input.sku !== undefined) data.sku = input.sku;
   if (input.sizeMl !== undefined) data.sizeMl = input.sizeMl;
   if (input.price !== undefined) data.price = input.price;
+  if (input.weightGrams !== undefined) data.weightGrams = input.weightGrams;
+  if (input.lengthCm !== undefined) data.lengthCm = input.lengthCm;
+  if (input.breadthCm !== undefined) data.breadthCm = input.breadthCm;
+  if (input.heightCm !== undefined) data.heightCm = input.heightCm;
   if (input.isActive !== undefined) data.isActive = input.isActive;
 
   const v = await prisma.productVariant.update({ where: { id: variantId }, data });

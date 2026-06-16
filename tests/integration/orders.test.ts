@@ -50,11 +50,11 @@ describe("POST /api/orders", () => {
     });
     expect(adj?.delta).toBe(-2);
 
-    // Free shipping is promo-driven now; with no promo the order pays flat
-    // shipping regardless of subtotal.
+    // ₹4,000 subtotal clears the ₹2,599 free-shipping threshold, so shipping
+    // is waived (no promo needed).
     expect(order?.subtotalPrice).toBe(400_000);
-    expect(order?.shippingPrice).toBe(9_900);
-    expect(order?.totalPrice).toBe(409_900);
+    expect(order?.shippingPrice).toBe(0);
+    expect(order?.totalPrice).toBe(400_000);
   });
 
   it("re-quotes server-side — UI prices are not trusted", async () => {

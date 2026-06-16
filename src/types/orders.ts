@@ -125,6 +125,8 @@ export interface OrderDetailDto {
   placedAt: string;
   paidAt: string | null;
   cancelledAt: string | null;
+  /** expected delivery (placedAt + cheapest-courier ETA); null in manual mode */
+  estimatedDeliveryAt: string | null;
   email: string;
   phone: string;
   shippingAddress: OrderAddressDto;

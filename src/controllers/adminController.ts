@@ -157,6 +157,10 @@ const variantCreateSchema = z.object({
   sizeMl: z.number().int().positive(),
   price: z.number().int().nonnegative(),
   stock: z.number().int().nonnegative().optional(),
+  weightGrams: z.number().int().positive().optional(),
+  lengthCm: z.number().int().positive().optional(),
+  breadthCm: z.number().int().positive().optional(),
+  heightCm: z.number().int().positive().optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -170,6 +174,10 @@ const variantPatchSchema = z.object({
   sku: z.string().min(1).max(60).optional(),
   sizeMl: z.number().int().positive().optional(),
   price: z.number().int().nonnegative().optional(),
+  weightGrams: z.number().int().positive().nullable().optional(),
+  lengthCm: z.number().int().positive().nullable().optional(),
+  breadthCm: z.number().int().positive().nullable().optional(),
+  heightCm: z.number().int().positive().nullable().optional(),
   isActive: z.boolean().optional(),
 });
 

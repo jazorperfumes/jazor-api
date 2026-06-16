@@ -374,10 +374,16 @@ export async function applyPromotions(input: EngineInput): Promise<EngineResult>
     });
   }
 
-  // ── shipping / FREE_SHIPPING ──
-  // Shipping is only free via a FREE_SHIPPING promo — there is no always-on
-  // env threshold. Every order pays flat shipping unless a promo waives it.
+  // ── shipping: flat rate, free over threshold, or free via promo ──
+  // Customer-facing shipping is a flat env rate. It's waived when either the
+  // post-discount subtotal clears the always-on free-shipping threshold, or a
+  // FREE_SHIPPING promo applies. (Live courier rates drive admin dispatch +
+  // serviceability/ETA only — never the customer charge.)
   const baseShipping = env.FLAT_SHIPPING_PAISE;
+  const netSubtotal = subtotalPrice - monetaryDiscount;
+  const freeByThreshold =
+    env.FREE_SHIPPING_THRESHOLD_PAISE > 0 &&
+    netSubtotal >= env.FREE_SHIPPING_THRESHOLD_PAISE;
 
   const freeShipPromos = [...autoEligible, ...codeEligible]
     .filter((p) => p.rewardType === "FREE_SHIPPING" && subtotalPrice >= p.minOrderPrice)
@@ -385,7 +391,10 @@ export async function applyPromotions(input: EngineInput): Promise<EngineResult>
 
   let shippingPrice = baseShipping;
   const shipResolved: ResolvedPromotion[] = [];
-  if (freeShipPromos.length > 0) {
+  if (freeByThreshold) {
+    // Built-in pricing rule, not a promotion — no redemption row recorded.
+    shippingPrice = 0;
+  } else if (freeShipPromos.length > 0) {
     const promo = freeShipPromos[0];
     const waived = baseShipping;
     shippingPrice = 0;

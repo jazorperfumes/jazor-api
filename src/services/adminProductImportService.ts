@@ -61,9 +61,11 @@ export const IMPORT_COLUMNS = [
   "sku_50",
   "price_50",
   "stock_50",
+  "weight_50",
   "sku_100",
   "price_100",
   "stock_100",
+  "weight_100",
   // per-variant image URLs; `images` is a shared fallback applied to every
   // variant that has no size-specific column.
   "images",
@@ -111,6 +113,8 @@ interface VariantSpec {
   sizeMl: number;
   price: number;
   stock: number;
+  /** packaged weight in grams; null → DEFAULT_PACKAGE fallback at ship time */
+  weightGrams: number | null;
   imageUrls: string[];
 }
 
@@ -250,9 +254,15 @@ function validateRows(raw: RawRow[]): ParseResult {
 
     // variants (fixed 50ml / 100ml)
     const variants: VariantSpec[] = [];
-    const variantInputs: Array<{ sizeMl: number; sku?: string; price?: string; stock?: string }> = [
-      { sizeMl: 50, sku: r.sku_50, price: r.price_50, stock: r.stock_50 },
-      { sizeMl: 100, sku: r.sku_100, price: r.price_100, stock: r.stock_100 },
+    const variantInputs: Array<{
+      sizeMl: number;
+      sku?: string;
+      price?: string;
+      stock?: string;
+      weight?: string;
+    }> = [
+      { sizeMl: 50, sku: r.sku_50, price: r.price_50, stock: r.stock_50, weight: r.weight_50 },
+      { sizeMl: 100, sku: r.sku_100, price: r.price_100, stock: r.stock_100, weight: r.weight_100 },
     ];
     for (const vi of variantInputs) {
       const sku = (vi.sku ?? "").trim();
@@ -266,6 +276,14 @@ function validateRows(raw: RawRow[]): ParseResult {
       const stock = vi.stock && vi.stock.trim() ? intInRange(vi.stock, 0, 1_000_000) : 0;
       if (stock === null) msgs.push(`stock_${vi.sizeMl} must be a non-negative integer`);
 
+      // Optional packaged weight in grams; blank → null (DEFAULT_PACKAGE fallback).
+      let weightGrams: number | null = null;
+      if (vi.weight && vi.weight.trim()) {
+        weightGrams = intInRange(vi.weight, 1, 100_000);
+        if (weightGrams === null)
+          msgs.push(`weight_${vi.sizeMl} must be a positive integer (grams)`);
+      }
+
       const imageUrls = variantImages(vi.sizeMl);
       const badUrls = imageUrls.filter((u) => !isHttpUrl(u));
       if (badUrls.length)
@@ -275,7 +293,7 @@ function validateRows(raw: RawRow[]): ParseResult {
       // >=1 image per variant (counting manual uploads) before saving.
 
       if (price !== null && stock !== null) {
-        variants.push({ sku, sizeMl: vi.sizeMl, price, stock, imageUrls });
+        variants.push({ sku, sizeMl: vi.sizeMl, price, stock, weightGrams, imageUrls });
       }
     }
     if (variants.length === 0 && !msgs.some((m) => m.startsWith("price") || m.startsWith("stock")))
@@ -570,6 +588,7 @@ async function insertOne(r: ValidRow): Promise<string> {
           sizeMl: v.sizeMl,
           price: v.price,
           stock: v.stock,
+          weightGrams: v.weightGrams,
           isActive: true,
         })),
       });
@@ -702,9 +721,11 @@ export function templateCsv(): string {
     "JZ-OR-50",
     "2499",
     "20",
+    "250",
     "JZ-OR-100",
     "4499",
     "15",
+    "400",
     '"https://example.com/oud-royale.jpg"',
     '"https://example.com/oud-royale-50.jpg"',
     '"https://example.com/oud-royale-100.jpg"',

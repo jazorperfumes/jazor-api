@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../middleware/error.js";
 import { env } from "../env.js";
+import { computePackage } from "./shipping/rating.js";
 import { getShippingProvider } from "./shipping/index.js";
 import type { CreateShipmentItem } from "./shipping/types.js";
 import type {
@@ -155,7 +156,13 @@ export async function detail(orderId: string): Promise<AdminOrderDetailDto> {
   const o = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
-      items: true,
+      items: {
+        include: {
+          variant: {
+            select: { weightGrams: true, lengthCm: true, breadthCm: true, heightCm: true },
+          },
+        },
+      },
       payments: { orderBy: { createdAt: "desc" } },
       shipments: { orderBy: { createdAt: "desc" } },
       refunds: { orderBy: { createdAt: "desc" } },
@@ -165,6 +172,24 @@ export async function detail(orderId: string): Promise<AdminOrderDetailDto> {
     },
   });
   if (!o) throw new HttpError(404, "NOT_FOUND", "Order not found");
+
+  // Suggested package for the ship/rate-shop form. Same envelope math the
+  // customer checkout quote uses (per-SKU dims, DEFAULT_PACKAGE fallback). Admin
+  // can still override on the form.
+  const suggestedPackage = computePackage(
+    o.items.map((i) => ({
+      weightGrams: i.variant?.weightGrams ?? null,
+      lengthCm: i.variant?.lengthCm ?? null,
+      breadthCm: i.variant?.breadthCm ?? null,
+      heightCm: i.variant?.heightCm ?? null,
+      qty: i.qty,
+    })),
+  );
+
+  // Reconciliation: what the customer paid for shipping vs the latest shipment's
+  // provider freight. Positive = margin, negative = loss. Null until shipped.
+  const latestFreight = o.shipments[0]?.shippingChargePrice ?? null;
+  const shippingMargin = latestFreight === null ? null : o.shippingPrice - latestFreight;
 
   return {
     id: o.id,
@@ -178,6 +203,8 @@ export async function detail(orderId: string): Promise<AdminOrderDetailDto> {
     shippingPrice: o.shippingPrice,
     giftWrapPrice: o.giftWrapPrice,
     totalPrice: o.totalPrice,
+    suggestedPackage,
+    shippingMargin,
     promotions: o.redemptions.map((r) => ({
       promotionId: r.promotionId,
       code: r.code,
@@ -227,6 +254,7 @@ export async function detail(orderId: string): Promise<AdminOrderDetailDto> {
       awb: s.awb,
       trackingUrl: s.trackingUrl,
       weightGrams: s.weightGrams,
+      shippingChargePrice: s.shippingChargePrice,
       shippedAt: s.shippedAt ? s.shippedAt.toISOString() : null,
       deliveredAt: s.deliveredAt ? s.deliveredAt.toISOString() : null,
       createdAt: s.createdAt.toISOString(),
