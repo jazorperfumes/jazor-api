@@ -23,6 +23,7 @@ import {
   PrismaClient,
   Prisma,
   Collection,
+  Intensity,
   Tier,
   Family,
   Mood,
@@ -50,6 +51,7 @@ interface Row {
   collection: string;
   tier: string;
   family: string;
+  intensity: string;
   longevity: string;
   sillage: string;
   top_notes_en: string;
@@ -116,6 +118,7 @@ async function seedProducts() {
       collection: r.collection as Collection,
       tier: r.tier && r.tier.trim() ? (r.tier.trim() as Tier) : null,
       family: r.family as Family,
+      intensity: r.intensity && r.intensity.trim() ? (r.intensity.trim() as Intensity) : null,
       longevity: intOr(r.longevity, 5),
       sillage: intOr(r.sillage, 5),
       topNotes: { en: splitList(r.top_notes_en), ar: splitList(r.top_notes_ar) },
@@ -391,9 +394,20 @@ async function seedPromotions(): Promise<Record<string, PromoRef>> {
     const existing = data.code
       ? await prisma.promotion.findUnique({ where: { code: data.code }, select: { id: true } })
       : await prisma.promotion.findFirst({ where: { name: data.name }, select: { id: true } });
-    const p = existing
-      ? await prisma.promotion.update({ where: { id: existing.id }, data })
-      : await prisma.promotion.create({ data });
+    
+    let p;
+    if (existing) {
+      const updateData: Prisma.PromotionUpdateInput = { ...data };
+      if (data.giftProducts) {
+        updateData.giftProducts = {
+          deleteMany: {},
+          create: giftVariants.map((v) => ({ variantId: v.id })),
+        };
+      }
+      p = await prisma.promotion.update({ where: { id: existing.id }, data: updateData });
+    } else {
+      p = await prisma.promotion.create({ data });
+    }
     out[key] = { id: p.id, rewardType: p.rewardType, code: p.code };
   }
   return out;

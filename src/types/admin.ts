@@ -8,6 +8,7 @@ import type {
   Family,
   I18nList,
   I18nString,
+  Intensity,
   Mood,
   Occasion,
   ProductImageSummaryDto,
@@ -91,6 +92,7 @@ export interface AdminProductListItemDto {
   collection: Collection;
   tier: Tier | null;
   family: Family;
+  intensity: Intensity | null;
   isActive: boolean;
   isFeatured: boolean;
   deletedAt: string | null;
@@ -118,6 +120,7 @@ export interface AdminProductDetailDto {
   collection: Collection;
   tier: Tier | null;
   family: Family;
+  intensity: Intensity | null;
   longevity: number;
   sillage: number;
   moods: Mood[];
@@ -139,6 +142,7 @@ export interface AdminProductUpsertRequest {
   collection: Collection;
   tier?: Tier | null;
   family: Family;
+  intensity?: Intensity | null;
   longevity: number;
   sillage: number;
   topNotes: I18nList;

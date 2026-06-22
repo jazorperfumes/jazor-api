@@ -94,6 +94,7 @@ function toListItemDto(p: Awaited<ReturnType<typeof loadCandidates>>[number]): P
     collection: p.collection,
     tier: p.tier,
     family: p.family,
+    intensity: p.intensity as any,
     longevity: p.longevity,
     sillage: p.sillage,
     isFeatured: p.isFeatured,

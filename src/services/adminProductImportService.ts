@@ -22,6 +22,7 @@ const REQUIRED_HEADERS = ["slug", "name_en", "collection", "family"];
 
 const COLLECTIONS = new Set<Collection>(["FRENCH", "ARABIC"]);
 const TIERS = new Set<Tier>(["SIGNATURE", "DARK"]);
+const INTENSITIES = new Set(["LIGHT", "MODERATE", "STRONG", "IMPACTFUL"]);
 const FAMILIES = new Set<Family>([
   "FLORAL",
   "WOODY",
@@ -46,6 +47,7 @@ export const IMPORT_COLUMNS = [
   "collection",
   "tier",
   "family",
+  "intensity",
   "longevity",
   "sillage",
   "top_notes_en",
@@ -126,6 +128,7 @@ interface ValidRow {
   collection: Collection;
   tier: Tier | null;
   family: Family;
+  intensity: any | null;
   longevity: number;
   sillage: number;
   topNotes: { en: string[]; ar: string[] };
@@ -224,6 +227,14 @@ function validateRows(raw: RawRow[]): ParseResult {
     if (!FAMILIES.has(family))
       msgs.push(`family must be one of ${[...FAMILIES].join("|")}`);
 
+    const intensityRaw = (r.intensity ?? "").trim();
+    let intensity: any = null;
+    if (intensityRaw) {
+      if (!INTENSITIES.has(intensityRaw))
+        msgs.push(`intensity must be blank or one of ${[...INTENSITIES].join("|")}`);
+      else intensity = intensityRaw;
+    }
+
     let longevity = 5;
     if (r.longevity && r.longevity.trim()) {
       const v = intInRange(r.longevity, 1, 10);
@@ -317,6 +328,7 @@ function validateRows(raw: RawRow[]): ParseResult {
       collection,
       tier,
       family,
+      intensity,
       longevity,
       sillage,
       topNotes: { en: splitList(r.top_notes_en), ar: splitList(r.top_notes_ar) },
@@ -569,6 +581,7 @@ async function insertOne(r: ValidRow): Promise<string> {
         collection: r.collection,
         tier: r.tier,
         family: r.family,
+        intensity: r.intensity,
         longevity: r.longevity,
         sillage: r.sillage,
         topNotes: r.topNotes as unknown as Prisma.InputJsonValue,
@@ -706,6 +719,7 @@ export function templateCsv(): string {
     "ARABIC",
     "SIGNATURE",
     "OUD",
+    "STRONG",
     "9",
     "8",
     '"Saffron,Bergamot"',

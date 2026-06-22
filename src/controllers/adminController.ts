@@ -18,6 +18,7 @@ import * as newsSvc from "../services/adminNewsletterService.js";
 
 const COLLECTION = z.enum(["FRENCH", "ARABIC"]);
 const TIER = z.enum(["SIGNATURE", "DARK"]);
+const INTENSITY = z.enum(["LIGHT", "MODERATE", "STRONG", "IMPACTFUL"]);
 const FAMILY = z.enum(["FLORAL", "WOODY", "ORIENTAL", "FRESH", "OUD", "AMBER", "CITRUS", "AQUATIC", "GOURMAND"]);
 const MOOD = z.enum(["CONFIDENT", "CALM", "MYSTERIOUS", "FRESH"]);
 const OCCASION = z.enum(["DAY", "EVENING", "SPECIAL", "DAILY"]);
@@ -81,6 +82,7 @@ const productUpsertSchema = z.object({
   collection: COLLECTION,
   tier: TIER.nullish(),
   family: FAMILY,
+  intensity: INTENSITY.nullish(),
   longevity: z.number().int().min(1).max(10),
   sillage: z.number().int().min(1).max(10),
   topNotes: I18N_LIST,
