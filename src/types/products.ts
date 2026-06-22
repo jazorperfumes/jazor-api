@@ -8,6 +8,8 @@ export type Collection = "FRENCH" | "ARABIC";
 /** Cross-cutting overlay on top of Collection. null = standard product. */
 export type Tier = "SIGNATURE" | "DARK";
 
+export type Intensity = "LIGHT" | "MODERATE" | "STRONG" | "IMPACTFUL";
+
 export type Family =
   | "FLORAL"
   | "WOODY"
@@ -64,6 +66,7 @@ export interface ProductListItemDto {
   collection: Collection;
   tier: Tier | null;
   family: Family;
+  intensity: Intensity | null;
   longevity: number;
   sillage: number;
   isFeatured: boolean;
@@ -102,6 +105,7 @@ export interface ProductDetailDto {
   collection: Collection;
   tier: Tier | null;
   family: Family;
+  intensity: Intensity | null;
   longevity: number;
   sillage: number;
   isFeatured: boolean;

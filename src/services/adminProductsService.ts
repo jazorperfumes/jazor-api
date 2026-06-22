@@ -100,6 +100,7 @@ function toListItemDto(p: PrismaListProduct): AdminProductListItemDto {
     collection: p.collection,
     tier: p.tier,
     family: p.family,
+    intensity: p.intensity,
     isActive: p.isActive,
     isFeatured: p.isFeatured,
     deletedAt: p.deletedAt ? p.deletedAt.toISOString() : null,
@@ -172,6 +173,7 @@ function toDetailDto(p: PrismaListProduct): AdminProductDetailDto {
     collection: p.collection,
     tier: p.tier,
     family: p.family,
+    intensity: p.intensity,
     longevity: p.longevity,
     sillage: p.sillage,
     moods: p.moods as Mood[],
@@ -265,6 +267,7 @@ export async function create(input: AdminProductUpsertRequest): Promise<AdminPro
       collection: input.collection,
       tier: input.tier ?? null,
       family: input.family,
+      intensity: input.intensity,
       longevity: input.longevity,
       sillage: input.sillage,
       topNotes: input.topNotes as unknown as Prisma.InputJsonValue,
@@ -298,6 +301,7 @@ export async function patch(id: string, input: AdminProductPatchRequest): Promis
   if (input.collection) data.collection = input.collection;
   if (input.tier !== undefined) data.tier = input.tier;
   if (input.family) data.family = input.family;
+  if (input.intensity !== undefined) data.intensity = input.intensity;
   if (input.longevity !== undefined) data.longevity = input.longevity;
   if (input.sillage !== undefined) data.sillage = input.sillage;
   if (input.topNotes) data.topNotes = input.topNotes as unknown as Prisma.InputJsonValue;
