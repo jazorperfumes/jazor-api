@@ -1,5 +1,5 @@
 import { prisma } from "../lib/prisma.js";
-import type { Collection, Family, Mood, Occasion, ProductListItemDto } from "../types/products.js";
+import type { Collection, Family, Mood, Occasion, ProductListItemDto, Intensity } from "../types/products.js";
 import type { ScentFinderMatchResponse } from "../types/scentFinder.js";
 import { pickPrimaryImage } from "./productImage.js";
 
@@ -94,7 +94,7 @@ function toListItemDto(p: Awaited<ReturnType<typeof loadCandidates>>[number]): P
     collection: p.collection,
     tier: p.tier,
     family: p.family,
-    intensity: p.intensity as any,
+    intensity: p.intensity as Intensity | null,
     longevity: p.longevity,
     sillage: p.sillage,
     isFeatured: p.isFeatured,
