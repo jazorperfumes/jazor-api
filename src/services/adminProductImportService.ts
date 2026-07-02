@@ -13,7 +13,7 @@ import type {
   AdminProductImportRowError,
   AdminProductImportValidateRowResponse,
 } from "../types/admin.js";
-import type { Collection, Family, Mood, Occasion, Tier } from "../types/products.js";
+import type { Collection, Family, Mood, Occasion, Tier, Intensity } from "../types/products.js";
 
 // ─── config ──────────────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ interface ValidRow {
   collection: Collection;
   tier: Tier | null;
   family: Family;
-  intensity: any | null;
+  intensity: Intensity | null;
   longevity: number;
   sillage: number;
   topNotes: { en: string[]; ar: string[] };
@@ -228,11 +228,11 @@ function validateRows(raw: RawRow[]): ParseResult {
       msgs.push(`family must be one of ${[...FAMILIES].join("|")}`);
 
     const intensityRaw = (r.intensity ?? "").trim();
-    let intensity: any = null;
+    let intensity: Intensity | null = null;
     if (intensityRaw) {
       if (!INTENSITIES.has(intensityRaw))
         msgs.push(`intensity must be blank or one of ${[...INTENSITIES].join("|")}`);
-      else intensity = intensityRaw;
+      else intensity = intensityRaw as Intensity;
     }
 
     let longevity = 5;

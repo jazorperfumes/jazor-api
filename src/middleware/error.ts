@@ -34,6 +34,11 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     return;
   }
   if (err instanceof HttpError) {
+    if (err.status >= 500) {
+      logger.error(`API Error: ${err.code}`, err, { path: req.path, method: req.method });
+    } else {
+      logger.warn(`API Error: ${err.code}`, { message: err.message, path: req.path, method: req.method });
+    }
     const body: ApiResponse<never> = {
       ok: false,
       error: { code: err.code, message: err.message, details: err.details },

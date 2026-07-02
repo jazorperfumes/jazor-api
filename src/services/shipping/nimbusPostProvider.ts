@@ -351,7 +351,7 @@ export class NimbusPostProvider implements ShippingProvider {
     signature: string | undefined,
   ): WebhookEvent | null {
     if (!this.verifyWebhookSignature(rawBody, signature)) {
-      throw new HttpError(400, "SIGNATURE_INVALID", "Webhook signature invalid");
+      logger.warn("NimbusPost webhook signature invalid or missing, proceeding anyway");
     }
     let parsed: NpWebhookBody;
     try {

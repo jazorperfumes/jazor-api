@@ -15,6 +15,7 @@ import type {
   ReviewDto,
   ReviewListResponse,
   ReviewListSort,
+  Intensity,
 } from "../types/products.js";
 
 /**
@@ -122,7 +123,7 @@ export function toListItemDto(p: PrismaListProduct): ProductListItemDto {
     collection: p.collection,
     tier: p.tier,
     family: p.family,
-    intensity: p.intensity as any,
+    intensity: p.intensity as Intensity | null,
     longevity: p.longevity,
     sillage: p.sillage,
     isFeatured: p.isFeatured,
@@ -350,7 +351,7 @@ export async function detail(slug: string): Promise<ProductDetailDto> {
     collection: product.collection,
     tier: product.tier,
     family: product.family,
-    intensity: product.intensity as any,
+    intensity: product.intensity as Intensity | null,
     longevity: product.longevity,
     sillage: product.sillage,
     isFeatured: product.isFeatured,
