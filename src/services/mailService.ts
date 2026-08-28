@@ -228,6 +228,40 @@ export function orderConfirmationEmail(order: OrderDetailDto) {
         `Estimated delivery by <strong>${formatDeliveryDate(order.estimatedDeliveryAt)}</strong>.`,
       )
     : "";
+
+  let giftSection = "";
+  if (order.giftWrap) {
+    if (order.giftMessage) {
+      giftSection = `<div style="margin:20px 0;padding:16px;background:${BRAND.cream};border:1px dashed ${BRAND.gold};border-radius:6px;font-family:${BRAND.serif};font-size:14px;color:${BRAND.noir}">
+<strong>Gift Message:</strong><br/>
+<span style="font-style:italic;color:${BRAND.body}">"${escapeHtml(order.giftMessage)}"</span>
+</div>`;
+    } else {
+      giftSection = `<div style="margin:20px 0;padding:14px;background:${BRAND.cream};border:1px dashed ${BRAND.gold};border-radius:6px;font-family:${BRAND.serif};font-size:14px;color:${BRAND.body}">
+<strong>Gift Wrapped</strong>
+</div>`;
+    }
+  }
+
+  let notesSection = "";
+  if (order.notes) {
+    notesSection = `<div style="margin:16px 0;padding:12px;background:#f9f9f9;border-left:3px solid ${BRAND.noir};font-family:${BRAND.serif};font-size:14px;color:${BRAND.body}">
+<strong>Order Notes:</strong><br/>
+<span style="color:${BRAND.body}">${escapeHtml(order.notes)}</span>
+</div>`;
+  }
+
+  let extraText = "";
+  if (order.giftWrap) {
+    extraText += `\nGift Wrap: Yes`;
+    if (order.giftMessage) {
+      extraText += `\nGift Message: "${order.giftMessage}"`;
+    }
+  }
+  if (order.notes) {
+    extraText += `\nOrder Notes: ${order.notes}`;
+  }
+
   const body = `${heading("Thank you for your order")}
 ${para(greeting)}
 ${para(`Your order has been confirmed. We'll let you know as soon as it ships. Your reference number is <strong>${escapeHtml(order.orderNumber)}</strong>.`)}
@@ -236,11 +270,13 @@ ${goldRule()}
 ${renderOrderItemsHtml(order)}
 ${renderOrderTotalsHtml(order)}
 <div style="clear:both"></div>
+${giftSection}
+${notesSection}
 ${goldRule()}
 ${mutedNote("A detailed tax invoice is attached to this email as a PDF.")}`;
   return {
     subject: `Order confirmed — ${order.orderNumber}`,
-    text: `${order.shippingAddress.contactName ? `Hi ${order.shippingAddress.contactName},` : "Hi,"}\n\nThank you for your order. Reference: ${order.orderNumber}. Total: ${formatPaiseInr(order.totalPrice)}.\nInvoice attached.`,
+    text: `${order.shippingAddress.contactName ? `Hi ${order.shippingAddress.contactName},` : "Hi,"}\n\nThank you for your order. Reference: ${order.orderNumber}. Total: ${formatPaiseInr(order.totalPrice)}.${extraText}\n\nInvoice attached.`,
     html: wrapEmail({ preheader: `Order ${order.orderNumber} confirmed — ${formatPaiseInr(order.totalPrice)}.`, bodyHtml: body }),
   };
 }
