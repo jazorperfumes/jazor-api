@@ -170,7 +170,7 @@ export class NimbusPostProvider implements ShippingProvider {
     return token;
   }
 
-  private async npPost<T>(path: string, body: unknown): Promise<T> {
+  private async npPost<T>(path: string, body: unknown, isRetry = false): Promise<T> {
     const token = await this.getToken();
     const res = await fetch(`${env.NIMBUSPOST_BASE_URL}${path}`, {
       method: "POST",
@@ -196,6 +196,24 @@ export class NimbusPostProvider implements ShippingProvider {
         "NimbusPost returned malformed response",
       );
     }
+
+    // Check if the response indicates an invalid or missing token.
+    // If it does, and we haven't retried yet, clear the cached token and retry once.
+    const isTokenError =
+      json.status === false &&
+      typeof json.message === "string" &&
+      (json.message.toLowerCase().includes("token") || json.message.toLowerCase().includes("unauthorized"));
+
+    if (isTokenError && !isRetry) {
+      logger.warn("NimbusPost request failed due to invalid token. Clearing cached token and retrying...", {
+        path,
+        message: json.message,
+      });
+      this.cachedToken = null;
+      this.cachedTokenExpiresAt = 0;
+      return this.npPost<T>(path, body, true);
+    }
+
     const ok = res.ok && json.status !== false;
     if (!ok) {
       logger.error("NimbusPost call failed", new Error(json.message ?? text), {
