@@ -330,7 +330,7 @@ export async function ordersRateShop(req: Request, res: Response) {
 }
 
 const ordersShipLiveSchema = ordersRateShopSchema.extend({
-  courierId: z.number().int().positive(),
+  courierId: z.union([z.string(), z.number()]),
 });
 
 export async function ordersShipLive(req: Request, res: Response) {

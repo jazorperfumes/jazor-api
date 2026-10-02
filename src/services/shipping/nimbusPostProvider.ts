@@ -251,17 +251,37 @@ export class NimbusPostProvider implements ShippingProvider {
       : Array.isArray((data as NpServiceabilityData).data)
         ? (data as NpServiceabilityData).data ?? []
         : [];
-    return list.map<CourierOption>((c) => ({
-      courierId: toNumber(c.id ?? c.courier_id, 0),
-      courierName: c.name ?? c.courier_name ?? "Unknown",
-      freightChargesPrice: rupeesToPaise(toNumber(c.total_charges, 0)),
-      codChargesPrice: rupeesToPaise(toNumber(c.cod_charges, 0)),
-      estimatedDeliveryDays:
-        c.estimated_delivery_days !== undefined || c.edd !== undefined
-          ? toNumber(c.estimated_delivery_days ?? c.edd, 0)
-          : null,
-      rating: c.rating !== undefined ? toNumber(c.rating, 0) : null,
-    }));
+    return list.map<CourierOption>((c) => {
+      const rawId = c.id ?? c.courier_id;
+      const courierId = rawId !== undefined && rawId !== null ? String(rawId) : "0";
+      
+      // Handle edd which can be a date string "DD-MM-YYYY" or numeric days
+      let estimatedDeliveryDays: number | null = null;
+      const rawEdd = c.estimated_delivery_days ?? c.edd;
+      if (typeof rawEdd === "number") {
+        estimatedDeliveryDays = rawEdd;
+      } else if (typeof rawEdd === "string") {
+        if (/^\d+$/.test(rawEdd.trim())) {
+          estimatedDeliveryDays = Number(rawEdd);
+        } else if (/^\d{2}-\d{2}-\d{4}$/.test(rawEdd.trim())) {
+          const parts = rawEdd.trim().split("-");
+          const targetDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+          const now = new Date();
+          now.setHours(0, 0, 0, 0);
+          const diffMs = targetDate.getTime() - now.getTime();
+          estimatedDeliveryDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        }
+      }
+
+      return {
+        courierId,
+        courierName: c.name ?? c.courier_name ?? "Unknown",
+        freightChargesPrice: rupeesToPaise(toNumber(c.total_charges, 0)),
+        codChargesPrice: rupeesToPaise(toNumber(c.cod_charges, 0)),
+        estimatedDeliveryDays,
+        rating: c.rating !== undefined ? toNumber(c.rating, 0) : null,
+      };
+    });
   }
 
   // ─── create shipment ─────────────────────────────────────────────────────
@@ -317,11 +337,12 @@ export class NimbusPostProvider implements ShippingProvider {
         "NimbusPost response missing awb_number",
       );
     }
+
     return {
       providerShipmentId: String(data.shipment_id ?? awb),
       awb: String(awb),
       courierName: data.courier_name ?? "",
-      courierId: toNumber(data.courier_id ?? input.courierId, input.courierId),
+      courierId: data.courier_id !== undefined && data.courier_id !== null ? String(data.courier_id) : String(input.courierId),
       labelUrl: data.label ?? null,
       trackingUrl: data.tracking_url ?? null,
       freightChargesPrice: rupeesToPaise(toNumber(data.freight_charges, 0)),

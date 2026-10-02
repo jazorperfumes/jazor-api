@@ -501,7 +501,7 @@ export interface AdminPickupAddressListResponse {
 }
 
 export interface AdminCourierOptionDto {
-  courierId: number;
+  courierId: string | number;
   courierName: string;
   /** paise */
   freightChargesPrice: number;
@@ -527,7 +527,7 @@ export interface AdminRateShopResponse {
 
 export interface AdminShipLiveRequest {
   pickupAddressId: string;
-  courierId: number;
+  courierId: string | number;
   weightGrams: number;
   lengthCm: number;
   breadthCm: number;
