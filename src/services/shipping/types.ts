@@ -16,7 +16,7 @@ export interface RateShopInput {
 }
 
 export interface CourierOption {
-  courierId: number;
+  courierId: string | number;
   courierName: string;
   /** paise */
   freightChargesPrice: number;
@@ -73,14 +73,14 @@ export interface CreateShipmentInput {
   lengthCm: number;
   breadthCm: number;
   heightCm: number;
-  courierId: number;
+  courierId: string | number;
 }
 
 export interface CreateShipmentResult {
   providerShipmentId: string;
   awb: string;
   courierName: string;
-  courierId: number;
+  courierId: string | number;
   labelUrl: string | null;
   trackingUrl: string | null;
   /** paise */
